@@ -56,7 +56,9 @@ func TestSetupFirstRun(t *testing.T) {
 	if !strings.Contains(res.Body, `href="/login"`) {
 		t.Error("setup page should link to /login")
 	}
-	wantStatus(t, c.Get("/login"), http.StatusOK)
+	if res := c.Get("/login"); res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/setup" {
+		t.Errorf("GET /login with no users: %d %q, want redirect to /setup", res.StatusCode, res.Header.Get("Location"))
+	}
 
 	res = c.PostForm("/setup", url.Values{"username": {"Bad Name"}, "password": {"short"}, "password_confirm": {"short"}})
 	wantStatus(t, res, http.StatusUnprocessableEntity)

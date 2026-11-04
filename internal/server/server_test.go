@@ -87,3 +87,11 @@ func TestSecurityHeadersAndStatic(t *testing.T) {
 		t.Fatalf("static: status %d cache %q", res.StatusCode, res.Header.Get("Cache-Control"))
 	}
 }
+
+func TestLoginRedirectsToSetupWhenEmpty(t *testing.T) {
+	s := testutil.NewServer(t)
+	res := s.Client(t).Get("/login")
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/setup" {
+		t.Fatalf("want redirect to /setup, got %d %q", res.StatusCode, res.Header.Get("Location"))
+	}
+}

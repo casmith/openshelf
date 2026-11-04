@@ -84,7 +84,8 @@ func recoverer(log *slog.Logger) func(http.Handler) http.Handler {
 	}
 }
 
-const csp = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; " +
+// Remote image hosts are only used for Discover search results before an item is imported.
+const csp = "default-src 'self'; img-src 'self' data: https://covers.openlibrary.org https://image.tmdb.org https://images.igdb.com; style-src 'self'; script-src 'self'; " +
 	"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 func securityHeaders(next http.Handler) http.Handler {

@@ -20,7 +20,8 @@ func Header(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaItem
 	if err != nil {
 		return nil, err
 	}
-	return header(headerData{Item: item, Details: details, Editions: editions, CanEdit: CanEdit(viewer, item)}), nil
+	return header(headerData{Item: item, Details: details, Editions: editions, CanEdit: CanEdit(viewer, item),
+		CanRefresh: viewer.Role == db.UserRoleAdmin && item.MetadataProvider != nil}), nil
 }
 
 func KindLabel(k db.MediaKind) string {
