@@ -129,6 +129,8 @@ Cover/artwork, title, creators, release/publication information, genres, synopsi
 
 ## Data model (conceptual)
 
+> The concrete v0.1 schema is in [docs/data-model.md](docs/data-model.md). It consolidates the entities below: one `external_ids` table for all provider IDs; `editions` covering game releases; one `connected_accounts` table (v0.2) replacing `ExternalAccount`/`IntegrationConnection`/`AchievementSourceAccount`; and paired source/user columns instead of a generic `FieldOverride` table ([ADR 0002](docs/decisions/0002-source-and-user-fields.md)).
+
 **Do not use a single `status` field to represent ownership, progress, and activity.** These are separate concerns.
 
 | Entity | Purpose |
@@ -181,19 +183,18 @@ flowchart TD
     API --> Storage[Artwork cache / object storage - optional]
 ```
 
-### Initial stack (proposed, open for discussion)
+### Stack (decided — see [ADR 0001](docs/decisions/0001-go-monolith.md))
 
-| Layer | Candidate | Why |
+| Layer | Choice | Why |
 | --- | --- | --- |
-| Frontend | Next.js + TypeScript | Responsive web app, rich UI, PWA support |
-| API | NestJS + TypeScript **or** FastAPI + Python | Structured API; choose based on contributor preferences |
-| Database | PostgreSQL | Relational integrity, search options, JSONB when appropriate |
-| Jobs | Database-backed queue initially | Avoid Redis until workload justifies it |
-| Authentication | Local accounts initially; OIDC optional | Self-hostable with Authentik and other providers |
-| Deployment | Docker Compose first, Kubernetes manifests/Helm later | Easy contributor onboarding and homelab deployment |
-| Observability | Structured logs, health endpoints, optional OpenTelemetry | Works with common self-hosted monitoring stacks |
+| Application | Single Go binary: stdlib `net/http`, templ, htmx | Small static binary, low memory, server-rendered, no JS build |
+| Database | PostgreSQL 18 (pgx + sqlc, goose migrations) | Relational integrity, full-text/trigram search, typed queries |
+| Jobs | River (Postgres-backed), in-process by default | No Redis; split into a worker process only if needed |
+| Authentication | Local accounts; OIDC later | Self-hostable with Authentik and other providers |
+| Deployment | One container + Postgres via Docker Compose | Kubernetes/Helm deferred |
+| Observability | `slog` structured logs, `/healthz` and `/readyz` | OpenTelemetry deferred |
 
-**Architecture decision to settle:** One primary application service plus worker processes is likely sufficient. Avoid microservices until scale or team ownership demands them.
+**Resource budget:** idle RSS under 60 MB and roughly 0% idle CPU for the application container, checked in CI.
 
 ### Integration candidates
 
@@ -363,7 +364,9 @@ Each OpenShelf server is independently operated and supports multiple local acco
 
 ## Suggested MVP
 
-The first usable release should support:
+> **Revised:** this list is now split into a release train. v0.1 is the personal tracker; Steam (v0.2), Retro/RetroAchievements (v0.3), sharing (v0.4) and federation (v0.5) follow. See [ADR 0003](docs/decisions/0003-mvp-scope.md) and the [implementation plan](docs/plan.md).
+
+The original full list, kept for reference:
 
 1. Sign up / sign in (or admin-created accounts), profile, privacy defaults.
 2. Game, book, film, and basic TV metadata search with manual fallback.
@@ -414,30 +417,25 @@ The first usable release should support:
 9. What is the one feature missing from Backloggd/Goodreads/Letterboxd that you'd want here?
 10. Would you help test, design, or contribute code?
 
-## Proposed repository layout
+## Repository layout
 
 ```text
 openshelf/
-├── README.md                 # This RFC, later shortened to project overview
-├── images/                   # Concept mockups used by README
+├── cmd/openshelf/            # Single binary: serve, worker, migrate, seed, user
+├── internal/
+│   ├── server/ deps/ config/ # Wiring, middleware, shared dependencies
+│   ├── db/                   # sqlc-generated code + queries/*.sql
+│   ├── migrations/           # Embedded goose migrations
+│   ├── web/                  # Layout, UI components, static assets
+│   ├── auth/ catalog/ library/ experiences/ reviews/ lists/ ...  # Feature slices
+│   └── providers/            # Metadata adapters (openlibrary, tmdb, igdb)
+├── deploy/                   # Compose files
 ├── docs/
-│   ├── architecture.md       # Detailed architecture (after feedback)
-│   ├── data-model.md         # Schema and domain rules
-│   ├── integrations.md       # Provider-specific notes
+│   ├── plan.md               # Implementation plan and task briefs
+│   ├── data-model.md         # Schema contract
 │   └── decisions/            # Architecture decision records
-├── apps/
-│   ├── web/
-│   ├── api/
-│   └── worker/
-├── deploy/
-│   ├── compose/
-│   └── kubernetes/
-└── .github/
-    ├── ISSUE_TEMPLATE/
-    └── DISCUSSION_TEMPLATE/
+└── images/                   # Concept mockups used by README
 ```
-
-This layout is illustrative, not a requirement to create all directories before implementation.
 
 ## How to give feedback
 
