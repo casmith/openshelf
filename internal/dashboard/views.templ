@@ -1,12 +1,146 @@
 package dashboard
 
-import "github.com/casmith/openshelf/internal/web/ui"
+import (
+	"strconv"
 
-templ home(p ui.Page) {
+	"github.com/google/uuid"
+
+	"github.com/casmith/openshelf/internal/catalog"
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/images"
+	"github.com/casmith/openshelf/internal/journal"
+	"github.com/casmith/openshelf/internal/reviews"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+templ home(p ui.Page, h homeData) {
 	@ui.Layout(p) {
-		@ui.PageHeader("Good to see you, "+p.User.DisplayName, "Your shelf is empty for now.") {
+		@ui.PageHeader(h.Greeting+", "+p.User.DisplayName, "Here's what's happening in your library.") {
 		}
-		@ui.EmptyState("Nothing here yet", "Features arrive in upcoming slices.") {
+		<ul class="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="Library summary">
+			@counter("cataloged", "Cataloged", h.Counters.Cataloged, "library", "text-accent")
+			@counter("in-progress", "In progress", h.Counters.InProgress, "right", "text-accent")
+			@counter("backlog", "Backlog", h.Counters.Backlog, "list", "text-muted")
+			@counter("completed", "Completed", h.Counters.Completed, "check", "text-success")
+		</ul>
+		@section("Currently enjoying", "/library", "View library") {
+			if len(h.Current) == 0 {
+				@ui.EmptyState("Nothing in progress", "Start something from your library to see it here.") {
+					@ui.LinkButton("secondary", "/library") {
+						Browse library
+					}
+				}
+			} else {
+				@ui.CoverGrid() {
+					for _, c := range h.Current {
+						<li data-section="current">
+							@cover(c.MediaItem.PublicID, c.MediaItem.Kind, c.MediaItem.Title, c.MediaItem.CoverImageID)
+							<p class="flex items-center gap-1.5 text-xs text-muted">
+								@ui.KindIcon(string(c.MediaItem.Kind), "h-3.5 w-3.5")
+								<span>{ status(c.DashboardCurrentRow) }</span>
+								if pr := journal.Progress(c.ProgressUnit, c.ProgressCurrent, c.ProgressTotal); pr != "" {
+									<span class="ml-auto truncate">{ pr }</span>
+								}
+							</p>
+							if pc := percent(c.DashboardCurrentRow); pc >= 0 {
+								<div class="mt-1.5 h-1 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={ strconv.Itoa(pc) }>
+									<div class="h-full bg-accent" style={ "width: " + strconv.Itoa(pc) + "%" }></div>
+								</div>
+							}
+							<div class="mt-2">
+								@c.QuickLog
+							</div>
+						</li>
+					}
+				}
+			}
 		}
+		<div class="grid gap-8 lg:grid-cols-3">
+			<div class="space-y-8 lg:col-span-2">
+				@section("Recently finished", "/journal?verb=finished", "View all") {
+					if len(h.Finished) == 0 {
+						<p class="text-sm text-muted">Nothing finished yet.</p>
+					} else {
+						<ul class="grid grid-cols-3 gap-4 sm:grid-cols-6">
+							for _, f := range h.Finished {
+								<li data-section="finished">
+									@cover(f.PublicID, f.Kind, f.Title, f.CoverImageID)
+									<p class="flex items-center gap-1.5 text-xs text-muted">
+										if f.FinishedOn != nil {
+											<span>{ f.FinishedOn.Format("Jan 2") }</span>
+										}
+										<span class="ml-auto">
+											@reviews.RatingDisplay(h.Display, f.Rating)
+										</span>
+									</p>
+								</li>
+							}
+						</ul>
+					}
+				}
+				@section("From your backlog", "/library", "View library") {
+					if len(h.Backlog) == 0 {
+						<p class="text-sm text-muted">Your backlog is empty.</p>
+					} else {
+						<ul class="grid grid-cols-3 gap-4 sm:max-w-md">
+							for _, b := range h.Backlog {
+								<li data-section="backlog">
+									@cover(b.PublicID, b.Kind, b.Title, b.CoverImageID)
+									<p class="flex items-center gap-1.5 text-xs text-muted">
+										@ui.KindIcon(string(b.Kind), "h-3.5 w-3.5")
+										{ catalog.KindLabel(b.Kind) }
+									</p>
+								</li>
+							}
+						</ul>
+					}
+				}
+			</div>
+			@section("Recent activity", "/journal", "View journal") {
+				if len(h.Activity) == 0 {
+					<p class="text-sm text-muted">No activity yet.</p>
+				} else {
+					<ul class="divide-y divide-line rounded-lg border border-line bg-surface">
+						for _, e := range h.Activity {
+							<li class="px-4 py-3" data-section="activity">
+								@journal.EventLine(e, h.Display, h.Loc, "Jan 2")
+							</li>
+						}
+					</ul>
+				}
+			}
+		</div>
 	}
+}
+
+templ counter(id, label string, n int64, icon, tone string) {
+	<li class="flex items-center gap-4 rounded-lg border border-line bg-surface p-4">
+		@ui.Icon(icon, "h-8 w-8 "+tone)
+		<div>
+			<p class="text-2xl font-semibold" id={ "count-" + id }>{ count(n) }</p>
+			<p class="text-sm text-muted">{ label }</p>
+		</div>
+	</li>
+}
+
+templ section(title, href, linkText string) {
+	<section class="mb-8">
+		<div class="mb-4 flex items-center justify-between">
+			<h2 class="text-lg font-semibold">{ title }</h2>
+			<a href={ templ.SafeURL(href) } class="flex items-center gap-1 text-sm text-accent hover:underline">
+				{ linkText }
+				@ui.Icon("right", "h-4 w-4")
+			</a>
+		</div>
+		{ children... }
+	</section>
+}
+
+templ cover(id uuid.UUID, kind db.MediaKind, title string, imageID *int64) {
+	<a href={ templ.SafeURL(journal.ItemHref(id)) } class="group block">
+		<div class="aspect-[2/3] overflow-hidden rounded-md border border-line bg-surface-2">
+			<img src={ images.CoverURL(imageID, kind, images.Card) } alt="" loading="lazy" class="h-full w-full object-cover transition group-hover:scale-[1.02]"/>
+		</div>
+		<p class="mt-2 truncate text-sm font-medium group-hover:text-accent">{ title }</p>
+	</a>
 }

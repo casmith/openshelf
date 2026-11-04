@@ -1,0 +1,94 @@
+package journal
+
+import (
+	"time"
+
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/images"
+	"github.com/casmith/openshelf/internal/reviews"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+type pageData struct {
+	Days       []Day
+	Now        time.Time
+	Display    db.RatingDisplay
+	Kind, Verb string
+	Kinds      []ui.Option
+	Verbs      []ui.Option
+	PrevHref   string
+	NextHref   string
+	Filtered   bool
+}
+
+templ page(p ui.Page, d pageData) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Journal", "Everything you've added, started, finished, and rated.") {
+		}
+		<form method="get" action="/journal" class="mb-6 flex flex-wrap items-end gap-3">
+			@ui.Select("kind", "Kind", d.Kind, "", d.Kinds, nil)
+			@ui.Select("verb", "Activity", d.Verb, "", d.Verbs, nil)
+			@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+				Filter
+			}
+			if d.Filtered {
+				<a href="/journal" class="py-2 text-sm text-muted hover:text-fg">Clear</a>
+			}
+		</form>
+		if len(d.Days) == 0 {
+			@ui.EmptyState("No activity yet", "Add something to your library and it will show up here.") {
+			}
+		}
+		<div class="space-y-8">
+			for _, day := range d.Days {
+				<section>
+					<h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
+						<time datetime={ day.Date.Format("2006-01-02") }>{ DayLabel(day.Date, d.Now) }</time>
+					</h2>
+					<ul class="divide-y divide-line rounded-lg border border-line bg-surface">
+						for _, e := range day.Events {
+							<li class="px-4 py-3">
+								@EventLine(e, d.Display, day.Date.Location(), "3:04 PM")
+							</li>
+						}
+					</ul>
+				</section>
+			}
+		</div>
+		@ui.Pagination(d.PrevHref, d.NextHref)
+	}
+}
+
+// EventLine renders one activity event; timeLayout formats occurred_at in loc.
+templ EventLine(e Event, display db.RatingDisplay, loc *time.Location, timeLayout string) {
+	{{ before, after := Sentence(e) }}
+	<div class="flex items-center gap-3">
+		<a href={ templ.SafeURL(ItemHref(e.ItemPublicID)) } class="shrink-0" tabindex="-1" aria-hidden="true">
+			<img src={ images.CoverURL(e.CoverImageID, e.Kind, images.Thumb) } alt="" loading="lazy" class="h-12 w-8 rounded border border-line bg-surface-2 object-cover"/>
+		</a>
+		<div class="min-w-0 flex-1 text-sm">
+			<p data-verb={ string(e.Verb) }>
+				{ before }
+				<a href={ templ.SafeURL(ItemHref(e.ItemPublicID)) } class="font-medium hover:text-accent">{ e.Title }</a>
+				if after != "" {
+					{ after }
+				}
+				if e.Verb == db.ActivityVerbListed && e.ListName != nil && e.ListPublicID != nil {
+					<a href={ templ.SafeURL("/lists/" + e.ListPublicID.String()) } class="font-medium hover:text-accent">{ *e.ListName }</a>
+				}
+			</p>
+			<p class="flex items-center gap-2 text-xs text-muted">
+				@ui.KindIcon(string(e.Kind), "h-3.5 w-3.5")
+				<time datetime={ e.OccurredAt.Format(time.RFC3339) }>{ e.OccurredAt.In(loc).Format(timeLayout) }</time>
+				if e.Verb == db.ActivityVerbProgressed {
+					<span>{ Progress(e.ProgressUnit, e.ProgressCurrent, e.ProgressTotal) }</span>
+				}
+				if e.Verb == db.ActivityVerbRated || e.Verb == db.ActivityVerbReviewed {
+					<span>
+						@reviews.RatingDisplay(display, e.Rating)
+					</span>
+				}
+			</p>
+		</div>
+	</div>
+}
