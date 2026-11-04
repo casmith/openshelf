@@ -1,0 +1,71 @@
+{
+ "numFound": 5,
+ "start": 0,
+ "docs": [
+  {
+   "author_name": [
+    "Ursula K. Le Guin"
+   ],
+   "cover_i": 10618463,
+   "first_publish_year": 1969,
+   "isbn": [
+    "9788419206947",
+    "9788576570578",
+    "9781857230741"
+   ],
+   "key": "/works/OL59800W",
+   "title": "The Left Hand of Darkness"
+  },
+  {
+   "author_name": [
+    "Harold Bloom"
+   ],
+   "cover_i": 11038837,
+   "first_publish_year": 1987,
+   "isbn": [
+    "9781555460648",
+    "155546064X"
+   ],
+   "key": "/works/OL18955388W",
+   "title": "Ursula K. Le Guin's the left hand of darkness"
+  },
+  {
+   "author_name": [
+    "Ursula K. Le Guin"
+   ],
+   "cover_i": 11441350,
+   "first_publish_year": 2016,
+   "isbn": [
+    "9781785293412",
+    "1785293419"
+   ],
+   "key": "/works/OL24715772W",
+   "title": "Earthsea & The Left Hand of Darkness"
+  },
+  {
+   "author_name": [
+    "Ursula K. Le Guin"
+   ],
+   "cover_i": 15228232,
+   "first_publish_year": 2019,
+   "isbn": [
+    "9788576574484",
+    "8576574489"
+   ],
+   "key": "/works/OL45588158W",
+   "title": "A Mão Esquerda da Escuridão"
+  },
+  {
+   "author_name": [
+    "Fatima Grace"
+   ],
+   "first_publish_year": 2021,
+   "isbn": [
+    "9798468480816",
+    "9798468491997"
+   ],
+   "key": "/works/OL36309883W",
+   "title": "Left Hand of Darkness"
+  }
+ ]
+}

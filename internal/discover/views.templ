@@ -1,0 +1,196 @@
+package discover
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/casmith/openshelf/internal/catalog"
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/images"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+func kindOptions() []ui.Option {
+	var out []ui.Option
+	for _, k := range []db.MediaKind{db.MediaKindBook, db.MediaKindGame, db.MediaKindFilm, db.MediaKindShow} {
+		out = append(out, ui.Option{Value: string(k), Label: catalog.KindLabel(k)})
+	}
+	return out
+}
+
+func yearText(y int) string {
+	if y <= 0 {
+		return ""
+	}
+	return strconv.Itoa(y)
+}
+
+func localSubtitle(r db.CatalogSearchRow) string {
+	if r.ReleaseYear != nil {
+		return strconv.Itoa(int(*r.ReleaseYear))
+	}
+	return catalog.KindLabel(r.Kind)
+}
+
+func resultMeta(r result) string {
+	var parts []string
+	if y := yearText(r.Year); y != "" {
+		parts = append(parts, y)
+	}
+	if r.Subtitle != "" {
+		parts = append(parts, r.Subtitle)
+	}
+	return strings.Join(parts, " · ")
+}
+
+templ page(p ui.Page, d pageData) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Discover", "Search your catalog and metadata providers, then import what's missing.")
+		<form
+			method="get"
+			action="/discover"
+			class="mb-6 flex flex-wrap items-end gap-3"
+			hx-get="/discover"
+			hx-target="#discover-results"
+			hx-push-url="true"
+			hx-indicator="#discover-busy"
+		>
+			<div class="w-40">
+				@ui.Select("kind", "Kind", string(d.Kind), "", kindOptions(), nil)
+			</div>
+			<div class="min-w-64 flex-1">
+				@ui.Field("q", "Search", d.Query, "", templ.Attributes{"type": "search", "placeholder": "Title, author, ...", "autofocus": true, "maxlength": "200"})
+			</div>
+			@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+				@ui.Icon("search", "h-4 w-4")
+				Search
+			}
+			<span id="discover-busy" class="htmx-indicator text-sm text-muted">Searching…</span>
+		</form>
+		<div id="discover-results">
+			@results(d)
+		</div>
+	}
+}
+
+templ results(d pageData) {
+	if d.Query == "" {
+		@ui.EmptyState("Find something to add", "Pick a kind and search by title.")
+	} else {
+		<section class="mb-8" aria-labelledby="local-heading">
+			<h2 id="local-heading" class="mb-3 text-lg font-semibold">In your catalog</h2>
+			if len(d.Local) == 0 {
+				<p class="text-sm text-muted">No matches in the catalog yet.</p>
+			} else {
+				@ui.CoverGrid() {
+					for _, r := range d.Local {
+						@ui.CoverCard(ui.CoverCardProps{
+							Href:     "/items/" + r.PublicID.String(),
+							Title:    r.Title,
+							Subtitle: localSubtitle(r),
+							CoverURL: images.CoverURL(r.CoverImageID, r.Kind, images.Card),
+							Kind:     string(r.Kind),
+						})
+					}
+				}
+			}
+		</section>
+		if len(d.Groups) == 0 {
+			<p class="text-sm text-muted">No metadata providers are configured for this kind.</p>
+		}
+		for _, g := range d.Groups {
+			@providerSection(d, g)
+		}
+	}
+}
+
+templ providerSection(d pageData, g providerResults) {
+	<section class="mb-8" aria-labelledby={ "provider-" + g.Provider }>
+		<h2 id={ "provider-" + g.Provider } class="mb-3 text-lg font-semibold">From { g.Provider }</h2>
+		if g.Notice != "" {
+			<p role="status" class="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-muted">{ g.Notice }</p>
+		} else if len(g.Results) == 0 {
+			<p class="text-sm text-muted">No results.</p>
+		} else {
+			<ul class="divide-y divide-line rounded-lg border border-line bg-surface">
+				for _, r := range g.Results {
+					<li class="flex items-center gap-3 px-4 py-3">
+						<img src={ images.PlaceholderURL(r.Kind) } alt="" class="h-14 w-10 shrink-0 rounded border border-line object-cover"/>
+						<div class="min-w-0 flex-1">
+							<p class="truncate font-medium">{ r.Title }</p>
+							if m := resultMeta(r); m != "" {
+								<p class="truncate text-sm text-muted">{ m }</p>
+							}
+						</div>
+						if r.ItemID != nil {
+							<a href={ templ.SafeURL("/items/" + r.ItemID.String()) } class="inline-flex items-center gap-1 text-sm text-accent hover:underline">
+								@ui.Icon("check", "h-4 w-4")
+								In catalog
+							</a>
+						} else {
+							<form method="post" action="/discover/import">
+								<input type="hidden" name="provider" value={ r.Provider }/>
+								<input type="hidden" name="kind" value={ string(r.Kind) }/>
+								<input type="hidden" name="ns" value={ r.ExternalID.Provider }/>
+								<input type="hidden" name="id" value={ r.ExternalID.Value }/>
+								<input type="hidden" name="q" value={ d.Query }/>
+								@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+									@ui.Icon("plus", "h-4 w-4")
+									Import
+								}
+							</form>
+						}
+					</li>
+				}
+			</ul>
+		}
+	</section>
+}
+
+templ adminPage(p ui.Page, rows []providerRow) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Metadata providers", "Configured from environment variables. Errors are kept in memory since the last restart.")
+		@ui.Table() {
+			<thead>
+				<tr><th>Provider</th><th>Kinds</th><th>Configured</th><th>Last success</th><th>Last error</th></tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					<tr>
+						<td class="font-medium">{ r.Name }</td>
+						<td>
+							for i, k := range r.Kinds {
+								if i > 0 {
+									{ ", " }
+								}
+								{ catalog.KindLabel(k) }
+							}
+						</td>
+						<td>
+							if r.Configured {
+								@ui.Badge("Configured")
+							} else {
+								@ui.Badge("Not configured")
+							}
+						</td>
+						<td class="text-muted">
+							if !r.Status.LastOKAt.IsZero() {
+								{ r.Status.LastOKAt.UTC().Format("2006-01-02 15:04 UTC") }
+							} else {
+								—
+							}
+						</td>
+						<td>
+							if r.Status.LastError != "" {
+								<span class="text-danger">{ r.Status.LastError }</span>
+								<span class="block text-xs text-muted">{ r.Status.LastErrorAt.UTC().Format("2006-01-02 15:04 UTC") }</span>
+							} else {
+								<span class="text-muted">None</span>
+							}
+						</td>
+					</tr>
+				}
+			</tbody>
+		}
+	}
+}

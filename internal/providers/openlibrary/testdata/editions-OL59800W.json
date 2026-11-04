@@ -1,0 +1,115 @@
+{
+ "size": 6,
+ "entries": [
+  {
+   "key": "/books/OL62675099M",
+   "title": "The Left Hand of Darkness",
+   "publishers": [
+    "Weidenfield & Nicolson"
+   ],
+   "publish_date": "2026",
+   "isbn_13": [
+    "9781399638319"
+   ],
+   "covers": [
+    15265232
+   ],
+   "works": [
+    {
+     "key": "/works/OL59800W"
+    }
+   ]
+  },
+  {
+   "key": "/books/OL12509193M",
+   "title": "La Main Gauche De La Nuit",
+   "publishers": [
+    "Editions Robert Laffont"
+   ],
+   "publish_date": "1969",
+   "physical_format": "Paperback",
+   "isbn_13": [
+    "9782266014632"
+   ],
+   "isbn_10": [
+    "2266014633"
+   ],
+   "works": [
+    {
+     "key": "/works/OL59800W"
+    }
+   ]
+  },
+  {
+   "key": "/books/OL33036131M",
+   "title": "La main gauche de la nuit",
+   "physical_format": "hardcover",
+   "isbn_13": [
+    "9782253021490"
+   ],
+   "isbn_10": [
+    "2253021490"
+   ],
+   "covers": [
+    11727865
+   ],
+   "works": [
+    {
+     "key": "/works/OL59800W"
+    }
+   ]
+  },
+  {
+   "key": "/books/OL58916236M",
+   "title": "the left hand of darkness",
+   "publishers": [
+    "ace books"
+   ],
+   "publish_date": "1977",
+   "number_of_pages": 322,
+   "works": [
+    {
+     "key": "/works/OL59800W"
+    }
+   ]
+  },
+  {
+   "key": "/books/OL58688990M",
+   "title": "The Left Hand of Darkness",
+   "publishers": [
+    "Walker and Company New York"
+   ],
+   "publish_date": "1969",
+   "number_of_pages": 230,
+   "covers": [
+    14920821
+   ],
+   "works": [
+    {
+     "key": "/works/OL59800W"
+    }
+   ]
+  },
+  {
+   "key": "/books/OL57929894M",
+   "title": "The Left Hand of Darkness",
+   "publishers": [
+    "Mondadori"
+   ],
+   "publish_date": "2021",
+   "number_of_pages": 285,
+   "physical_format": "Brossura",
+   "isbn_13": [
+    "9788804732051"
+   ],
+   "covers": [
+    14847273
+   ],
+   "works": [
+    {
+     "key": "/works/OL59800W"
+    }
+   ]
+  }
+ ]
+}
