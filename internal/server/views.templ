@@ -1,0 +1,12 @@
+package server
+
+import "github.com/casmith/openshelf/internal/web/ui"
+
+templ home(p ui.Page) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Good to see you, "+p.User.DisplayName, "Your shelf is empty for now.") {
+		}
+		@ui.EmptyState("Nothing here yet", "Features arrive in upcoming slices.") {
+		}
+	}
+}

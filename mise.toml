@@ -1,0 +1,5 @@
+[tools]
+go = "1.27.3"
+sqlc = "1.31.1"
+golangci-lint = "2.15.0"
+"aqua:tailwindlabs/tailwindcss" = "4.3.4"

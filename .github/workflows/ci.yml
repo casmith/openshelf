@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: openshelf
+          POSTGRES_PASSWORD: openshelf
+          POSTGRES_DB: openshelf
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U openshelf"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ hashFiles('go.sum') }}
+      - run: make check

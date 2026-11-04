@@ -1,0 +1,132 @@
+package ui
+
+import "github.com/casmith/openshelf/internal/web/static"
+
+templ Icon(name string, class string) {
+	<svg class={ cx("shrink-0", class) } viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+		@templ.Raw(iconSVG(name))
+	</svg>
+}
+
+templ Layout(p Page) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="htmx-config" content='{"includeIndicatorStyles":false,"allowScriptTags":false}'/>
+			<title>
+				if p.Title != "" {
+					{ p.Title } · OpenShelf
+				} else {
+					OpenShelf
+				}
+			</title>
+			<link rel="icon" href={ static.URL("logo.svg") } type="image/svg+xml"/>
+			<link rel="stylesheet" href={ static.URL("app.css") }/>
+			<script src={ static.URL("htmx.min.js") } defer></script>
+		</head>
+		<body class="min-h-screen" hx-boost="true">
+			<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-surface focus:px-3 focus:py-2">Skip to content</a>
+			if p.User != nil {
+				<div class="md:flex">
+					@sidebar(p)
+					<div class="min-w-0 flex-1">
+						@flash(p.Flash)
+						<main id="main" class="mx-auto max-w-7xl px-4 py-6 md:px-8">
+							{ children... }
+						</main>
+					</div>
+				</div>
+			} else {
+				@flash(p.Flash)
+				<main id="main" class="mx-auto max-w-md px-4 py-12">
+					{ children... }
+				</main>
+			}
+		</body>
+	</html>
+}
+
+templ brand() {
+	<a href="/" class="flex items-center gap-2 text-lg font-semibold">
+		<img src={ static.URL("logo.svg") } alt="" class="h-7 w-7"/>
+		OpenShelf
+	</a>
+}
+
+templ sidebar(p Page) {
+	<details class="group border-b border-line bg-surface md:hidden">
+		<summary class="flex cursor-pointer list-none items-center justify-between px-4 py-3">
+			@brand()
+			@Icon("menu", "h-6 w-6")
+			<span class="sr-only">Menu</span>
+		</summary>
+		<div class="px-2 pb-3">
+			@navLinks(p)
+		</div>
+	</details>
+	<aside class="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-line bg-surface px-3 py-5 md:flex">
+		<div class="px-2 pb-6">
+			@brand()
+		</div>
+		@navLinks(p)
+	</aside>
+}
+
+templ navLinks(p Page) {
+	<nav class="flex flex-1 flex-col gap-6" aria-label="Main">
+		<ul class="space-y-1">
+			for _, item := range MainNav {
+				@navLink(item, p.Nav == item.Key)
+			}
+		</ul>
+		<div>
+			<p class="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-muted">Libraries</p>
+			<ul class="space-y-1">
+				for _, item := range LibraryNav {
+					@navLink(item, p.Nav == item.Key)
+				}
+			</ul>
+		</div>
+		<div class="mt-auto space-y-1 border-t border-line pt-4">
+			<a href="/settings" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface-2">
+				@Icon("user", "h-5 w-5 text-muted")
+				<span class="truncate">{ p.User.DisplayName }</span>
+			</a>
+			<form method="post" action="/logout" hx-boost="false">
+				<button type="submit" class="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted hover:bg-surface-2 hover:text-fg">
+					@Icon("logout", "h-5 w-5")
+					Sign out
+				</button>
+			</form>
+		</div>
+	</nav>
+}
+
+templ navLink(item NavItem, active bool) {
+	<li>
+		<a
+			href={ templ.SafeURL(item.Href) }
+			class={ "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
+				templ.KV("bg-accent/15 font-medium text-fg", active),
+				templ.KV("text-muted hover:bg-surface-2 hover:text-fg", !active) }
+			if active {
+				aria-current="page"
+			}
+		>
+			@Icon(item.Icon, "h-5 w-5")
+			{ item.Label }
+		</a>
+	</li>
+}
+
+templ flash(msg string) {
+	<div id="flash" aria-live="polite">
+		if msg != "" {
+			<div class="mx-auto mt-4 max-w-7xl px-4 md:px-8">
+				<p class="rounded-md border border-accent/40 bg-accent/10 px-4 py-3 text-sm">{ msg }</p>
+			</div>
+		}
+	</div>
+}

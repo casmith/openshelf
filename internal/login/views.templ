@@ -1,0 +1,27 @@
+package login
+
+import (
+	"github.com/casmith/openshelf/internal/web/form"
+	"github.com/casmith/openshelf/internal/web/ui"
+	"github.com/casmith/openshelf/internal/web/static"
+)
+
+templ page(p ui.Page, f *form.Form) {
+	@ui.Layout(p) {
+		<div class="mb-8 flex flex-col items-center gap-3">
+			<img src={ static.URL("logo.svg") } alt="" class="h-12 w-12"/>
+			<h1 class="text-2xl font-semibold">Sign in to OpenShelf</h1>
+		</div>
+		@ui.Card("") {
+			<form method="post" action="/login" class="space-y-4" hx-boost="false">
+				@ui.FormErrors(f.Errors)
+				<input type="hidden" name="next" value={ f.Values.Get("next") }/>
+				@ui.Field("username", "Username", f.Values.Get("username"), f.Error("username"), templ.Attributes{"autocomplete": "username", "required": true, "autofocus": true})
+				@ui.Field("password", "Password", "", f.Error("password"), templ.Attributes{"type": "password", "autocomplete": "current-password", "required": true})
+				@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+					Sign in
+				}
+			</form>
+		}
+	}
+}
