@@ -2,7 +2,7 @@ package images
 
 import (
 	"context"
-	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/deps"
+	"github.com/casmith/openshelf/internal/safehttp"
 	"github.com/casmith/openshelf/internal/web/static"
 )
 
@@ -23,28 +24,36 @@ const (
 
 func (s Size) Valid() bool { return s == Thumb || s == Card || s == Full }
 
-// Enqueue records a remote image to fetch and returns its ID. Known URLs return the existing ID.
+// Enqueue records a remote image to fetch and returns its ID. Known URLs return
+// the existing ID; a fetch job is queued unless the image is ready or one is pending.
 func Enqueue(ctx context.Context, d *deps.Deps, tx pgx.Tx, sourceURL string) (int64, error) {
-	return d.Q.WithTx(tx).ImageUpsertByURL(ctx, sourceURL)
+	row, err := d.Q.WithTx(tx).ImagesUpsertByURL(ctx, sourceURL)
+	if err != nil {
+		return 0, err
+	}
+	if row.Status == db.ImageStatusReady {
+		return row.ID, nil
+	}
+	_, err = d.River.InsertTx(ctx, tx, FetchImageArgs{ImageID: row.ID}, nil)
+	return row.ID, err
 }
 
 // CoverURL is the URL to render for an item or edition cover. The cover handler
-// serves a placeholder until the image is ready.
+// serves the kind's placeholder until the image is ready.
 func CoverURL(imageID *int64, kind db.MediaKind, size Size) string {
 	if imageID == nil {
 		return PlaceholderURL(kind)
 	}
-	return "/covers/" + strconv.FormatInt(*imageID, 10) + "/" + string(size)
+	return "/covers/" + strconv.FormatInt(*imageID, 10) + "/" + string(size) + "?k=" + url.QueryEscape(string(kind))
 }
 
 func PlaceholderURL(kind db.MediaKind) string {
+	if !kind.Valid() {
+		kind = db.MediaKindBook
+	}
 	return static.URL("placeholder-" + string(kind) + ".svg")
 }
 
-func Register(mux *http.ServeMux, d *deps.Deps) {
-	mux.HandleFunc("GET /covers/{id}/{size}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, static.URL("placeholder-book.svg"), http.StatusFound)
-	})
+func Workers(w *river.Workers, d *deps.Deps) {
+	river.AddWorker(w, &FetchImageWorker{D: d, HTTP: safehttp.New(safehttp.Options{})})
 }
-
-func Workers(w *river.Workers, d *deps.Deps) {}
