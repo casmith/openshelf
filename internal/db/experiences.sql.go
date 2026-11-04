@@ -47,6 +47,53 @@ func (q *Queries) ExperiencesActiveForItem(ctx context.Context, arg ExperiencesA
 	return i, err
 }
 
+const experiencesActiveForItems = `-- name: ExperiencesActiveForItems :many
+select distinct on (media_item_id) id, public_id, user_id, media_item_id, edition_id, state, started_on, finished_on, progress_unit, progress_current, progress_total, notes, visibility, created_at, updated_at from experiences
+where user_id = $1 and media_item_id = any($2::bigint[]) and state = 'active'
+order by media_item_id, started_on desc nulls last, id desc
+`
+
+type ExperiencesActiveForItemsParams struct {
+	UserID       int64
+	MediaItemIds []int64
+}
+
+func (q *Queries) ExperiencesActiveForItems(ctx context.Context, arg ExperiencesActiveForItemsParams) ([]Experience, error) {
+	rows, err := q.db.Query(ctx, experiencesActiveForItems, arg.UserID, arg.MediaItemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Experience{}
+	for rows.Next() {
+		var i Experience
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.UserID,
+			&i.MediaItemID,
+			&i.EditionID,
+			&i.State,
+			&i.StartedOn,
+			&i.FinishedOn,
+			&i.ProgressUnit,
+			&i.ProgressCurrent,
+			&i.ProgressTotal,
+			&i.Notes,
+			&i.Visibility,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const experiencesDelete = `-- name: ExperiencesDelete :one
 delete from experiences
 where public_id = $1 and user_id = $2

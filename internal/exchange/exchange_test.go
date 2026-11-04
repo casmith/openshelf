@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"mime/multipart"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -49,22 +49,13 @@ func createExperience(t *testing.T, s *testutil.Server, userID, itemID int64, st
 	return id
 }
 
-func upload(t *testing.T, s *testutil.Server, c *testutil.Client, filename string, content []byte, preview bool) *testutil.Response {
+func upload(t *testing.T, c *testutil.Client, filename string, content []byte, preview bool) *testutil.Response {
 	t.Helper()
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	fw, err := mw.CreateFormFile("file", filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = fw.Write(content)
+	fields := url.Values{}
 	if preview {
-		_ = mw.WriteField("preview", "on")
+		fields.Set("preview", "on")
 	}
-	_ = mw.Close()
-	req, _ := http.NewRequest(http.MethodPost, s.URL+"/settings/import", &buf)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	return c.Do(req)
+	return c.Multipart("/settings/import", fields, "file", filename, content)
 }
 
 type job struct {
@@ -75,7 +66,7 @@ type job struct {
 // importFile uploads content with a preview, runs the dry run, confirms, and runs the import.
 func importFile(t *testing.T, s *testutil.Server, c *testutil.Client, filename string, content []byte) (job, *testutil.Response) {
 	t.Helper()
-	res := upload(t, s, c, filename, content, true)
+	res := upload(t, c, filename, content, true)
 	if res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("upload: status %d\n%s", res.StatusCode, res.Body)
 	}
@@ -337,7 +328,7 @@ func TestJSONExportRoundTrips(t *testing.T) {
 	wipe(t, s, alice.ID)
 	wiped := personalCounts(t, s, alice.ID)
 
-	res := upload(t, s, c, "export.json", raw, true)
+	res := upload(t, c, "export.json", raw, true)
 	if res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("upload: %d %s", res.StatusCode, res.Body)
 	}
@@ -552,15 +543,15 @@ func TestImportFileErrors(t *testing.T) {
 	alice := testutil.CreateUser(t, s.Q, "alice")
 	c := s.LoginAs(t, alice)
 
-	if res := upload(t, s, c, "empty.csv", []byte("  \n"), true); res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(res.Body, "The file is empty.") {
+	if res := upload(t, c, "empty.csv", []byte("  \n"), true); res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(res.Body, "The file is empty.") {
 		t.Errorf("empty file: status %d", res.StatusCode)
 	}
 	big := bytes.Repeat([]byte("a"), exchange.MaxUploadBytes+10)
-	if res := upload(t, s, c, "big.csv", big, true); res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(res.Body, "10 MB") {
+	if res := upload(t, c, "big.csv", big, true); res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(res.Body, "10 MB") {
 		t.Errorf("oversized file: status %d", res.StatusCode)
 	}
 
-	res := upload(t, s, c, "other.json", []byte(`{"format":"something.else"}`), true)
+	res := upload(t, c, "other.json", []byte(`{"format":"something.else"}`), true)
 	j := jobFromLocation(t, s, res.Header.Get("Location"))
 	process(t, s, j.ID, true)
 	if r := result(t, s, j.ID); r.Status != exchange.StatusFailed {
@@ -573,7 +564,7 @@ func TestImportFileErrors(t *testing.T) {
 		t.Errorf("confirming a failed job: status %d", res.StatusCode)
 	}
 
-	res = upload(t, s, c, "noheader.csv", []byte("game,Shenmue\n"), false)
+	res = upload(t, c, "noheader.csv", []byte("game,Shenmue\n"), false)
 	j = jobFromLocation(t, s, res.Header.Get("Location"))
 	process(t, s, j.ID, false)
 	if r := result(t, s, j.ID); r.Status != exchange.StatusFailed {
@@ -585,7 +576,7 @@ func TestImportWithoutPreviewQueuesDirectly(t *testing.T) {
 	s := testutil.NewServer(t)
 	alice := testutil.CreateUser(t, s.Q, "alice")
 	c := s.LoginAs(t, alice)
-	res := upload(t, s, c, "one.csv", []byte(csvHeader+"film,Heat,1995,,,,,owned,,,,,,,\n"), false)
+	res := upload(t, c, "one.csv", []byte(csvHeader+"film,Heat,1995,,,,,owned,,,,,,,\n"), false)
 	j := jobFromLocation(t, s, res.Header.Get("Location"))
 	if r := result(t, s, j.ID); r.Status != exchange.StatusQueued {
 		t.Fatalf("status = %s", r.Status)
@@ -613,7 +604,7 @@ func TestImportJobsAreIsolatedBetweenUsers(t *testing.T) {
 	bob := testutil.CreateUser(t, s.Q, "bob")
 	ac, bc := s.LoginAs(t, alice), s.LoginAs(t, bob)
 
-	res := upload(t, s, ac, "alice-private.csv", []byte(csvHeader+"book,Alice Diary,,,,,,owned,,,,,,,\n"), true)
+	res := upload(t, ac, "alice-private.csv", []byte(csvHeader+"book,Alice Diary,,,,,,owned,,,,,,,\n"), true)
 	j := jobFromLocation(t, s, res.Header.Get("Location"))
 	process(t, s, j.ID, true)
 

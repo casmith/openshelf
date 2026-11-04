@@ -89,11 +89,21 @@ func editionLabel(e db.ListEditionsForItemRow) string {
 	return strings.Join(parts, " · ")
 }
 
+templ coverImage(item db.MediaItem) {
+	<img src={ images.CoverURL(item.CoverImageID, item.Kind, images.Card) } alt={ "Cover of " + item.Title } class="aspect-[2/3] w-40 rounded-md border border-line object-cover sm:w-48"/>
+}
+
 templ header(h headerData) {
 	<div class="flex flex-col gap-6 sm:flex-row">
-		<a href={ templ.SafeURL(itemURL(h.Item) + "/cover") } class="shrink-0 self-start" title="Cover">
-			<img src={ images.CoverURL(h.Item.CoverImageID, h.Item.Kind, images.Card) } alt={ "Cover of " + h.Item.Title } class="aspect-[2/3] w-40 rounded-md border border-line object-cover sm:w-48"/>
-		</a>
+		if h.CanEdit {
+			<a href={ templ.SafeURL(itemURL(h.Item) + "/cover") } class="shrink-0 self-start" title="Change cover">
+				@coverImage(h.Item)
+			</a>
+		} else {
+			<div class="shrink-0 self-start">
+				@coverImage(h.Item)
+			</div>
+		}
 		<div class="min-w-0 flex-1">
 			<div class="flex flex-wrap items-start justify-between gap-3">
 				<div class="min-w-0">

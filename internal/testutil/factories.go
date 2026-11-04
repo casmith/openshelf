@@ -49,7 +49,7 @@ func CreateExperience(t testing.TB, pool *pgxpool.Pool, userID, itemID int64, st
 	t.Helper()
 	return one[db.Experience](t, pool,
 		`insert into experiences (user_id, media_item_id, state, started_on, finished_on)
-		 values ($1, $2, $3::experience_state, current_date, case when $3::text in ('finished', 'abandoned') then current_date end)
+		 values ($1, $2, $3::text::experience_state, current_date, case when $3::text in ('finished', 'abandoned') then current_date end)
 		 returning *`, userID, itemID, state)
 }
 

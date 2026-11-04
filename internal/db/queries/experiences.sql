@@ -9,6 +9,11 @@ where user_id = @user_id and media_item_id = @media_item_id and state = 'active'
 order by started_on desc nulls last, id desc
 limit 1;
 
+-- name: ExperiencesActiveForItems :many
+select distinct on (media_item_id) * from experiences
+where user_id = @user_id and media_item_id = any(@media_item_ids::bigint[]) and state = 'active'
+order by media_item_id, started_on desc nulls last, id desc;
+
 -- name: ExperiencesGetForUpdate :one
 select * from experiences
 where public_id = @public_id and user_id = @user_id

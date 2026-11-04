@@ -19,8 +19,20 @@ templ libraryPage(p ui.Page, v libraryView) {
 	@ui.Layout(p) {
 		@ui.PageHeader(p.Title, "") {
 			@viewToggle(v)
+			@addLinks("secondary")
 		}
 		@libraryBody(v)
+	}
+}
+
+templ addLinks(variant string) {
+	@ui.LinkButton(variant, "/discover") {
+		@ui.Icon("search", "h-4 w-4")
+		Discover
+	}
+	@ui.LinkButton("secondary", "/items/new") {
+		@ui.Icon("plus", "h-4 w-4")
+		Add item
 	}
 }
 
@@ -95,11 +107,8 @@ templ libraryBody(v libraryView) {
 					}
 				}
 			} else {
-				@ui.EmptyState("Nothing here yet", "Find something and add it to your library from its page.") {
-					@ui.LinkButton("primary", "/search") {
-						@ui.Icon("search", "h-4 w-4")
-						Search
-					}
+				@ui.EmptyState("Nothing here yet", "Find something on Discover, or add it by hand, then add it to your library from its page.") {
+					@addLinks("primary")
 				}
 			}
 		} else if v.Filter.View == "table" {
