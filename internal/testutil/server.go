@@ -1,9 +1,11 @@
 package testutil
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -137,5 +139,26 @@ func (c *Client) Form(method, path string, v url.Values, htmx bool) *Response {
 	if htmx {
 		req.Header.Set("HX-Request", "true")
 	}
+	return c.Do(req)
+}
+
+// Multipart posts fields plus one file as multipart/form-data.
+func (c *Client) Multipart(path string, fields url.Values, fileField, filename string, content []byte) *Response {
+	c.t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, vs := range fields {
+		for _, v := range vs {
+			_ = mw.WriteField(k, v)
+		}
+	}
+	fw, err := mw.CreateFormFile(fileField, filename)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	_, _ = fw.Write(content)
+	_ = mw.Close()
+	req, _ := http.NewRequest(http.MethodPost, c.base+path, &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
 	return c.Do(req)
 }

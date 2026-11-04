@@ -48,12 +48,16 @@ func load(ctx context.Context, d *deps.Deps, viewer db.User) (homeData, error) {
 	if err != nil {
 		return h, err
 	}
+	items := make([]db.MediaItem, len(current))
+	for i, c := range current {
+		items[i] = c.MediaItem
+	}
+	logs, err := experiences.QuickLogs(ctx, d, viewer, items)
+	if err != nil {
+		return h, err
+	}
 	for _, c := range current {
-		ql, err := experiences.QuickLog(ctx, d, viewer, c.MediaItem)
-		if err != nil {
-			return h, err
-		}
-		h.Current = append(h.Current, currentCard{c, ql})
+		h.Current = append(h.Current, currentCard{c, logs[c.MediaItem.ID]})
 	}
 	if h.Finished, err = d.Q.DashboardRecentlyFinished(ctx, db.DashboardRecentlyFinishedParams{UserID: viewer.ID, Lim: finishedLimit}); err != nil {
 		return h, err

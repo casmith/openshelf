@@ -52,6 +52,24 @@ func QuickLog(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaIt
 	return quickLog(item, e), nil
 }
 
+// QuickLogs is QuickLog for many items in one query, keyed by media item ID.
+func QuickLogs(ctx context.Context, d *deps.Deps, viewer db.User, items []db.MediaItem) (map[int64]templ.Component, error) {
+	ids := make([]int64, len(items))
+	byID := make(map[int64]db.MediaItem, len(items))
+	out := make(map[int64]templ.Component, len(items))
+	for i, it := range items {
+		ids[i], byID[it.ID], out[it.ID] = it.ID, it, templ.NopComponent
+	}
+	es, err := d.Q.ExperiencesActiveForItems(ctx, db.ExperiencesActiveForItemsParams{UserID: viewer.ID, MediaItemIds: ids})
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range es {
+		out[e.MediaItemID] = quickLog(byID[e.MediaItemID], e)
+	}
+	return out, nil
+}
+
 var rowActions = []Action{ActionStart, ActionPause, ActionResume, ActionFinish, ActionAbandon}
 
 func itemURL(item db.MediaItem) string   { return "/items/" + item.PublicID.String() }

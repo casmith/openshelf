@@ -317,7 +317,7 @@ func TestGridOf500EntriesUsesFewQueries(t *testing.T) {
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("status %d", res.StatusCode)
 		}
-		if cards := strings.Count(res.Body, `href="/items/`); cards != 500 {
+		if cards := strings.Count(res.Body, `href="/items/`) - strings.Count(res.Body, `href="/items/new"`); cards != 500 {
 			t.Fatalf("%s: rendered %d entries, want 500", view, cards)
 		}
 		t.Logf("%s: %d queries", view, n)

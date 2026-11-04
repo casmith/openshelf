@@ -7,7 +7,6 @@ import (
 	"image/color"
 	"image/png"
 	"io/fs"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -269,21 +268,6 @@ func TestCoverHandler(t *testing.T) {
 	}
 }
 
-func upload(t *testing.T, c *testutil.Client, base, path string, data []byte) *testutil.Response {
-	t.Helper()
-	var body bytes.Buffer
-	mw := multipart.NewWriter(&body)
-	fw, err := mw.CreateFormFile("cover", "cover.jpg")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = fw.Write(data)
-	_ = mw.Close()
-	req, _ := http.NewRequest(http.MethodPost, base+path, &body)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	return c.Do(req)
-}
-
 func TestUploadCover(t *testing.T) {
 	s := testutil.NewServer(t)
 	creator := testutil.CreateUser(t, s.Q, "carol")
@@ -313,7 +297,7 @@ func TestUploadCover(t *testing.T) {
 		t.Fatalf("cover page: %d\n%s", res.StatusCode, res.Body)
 	}
 
-	res = upload(t, cc, s.URL, path, []byte("GIF89a but not really an image"))
+	res = cc.Multipart(path, nil, "cover", "cover.jpg", []byte("GIF89a but not really an image"))
 	if res.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(res.Body, "supported image") {
 		t.Fatalf("bad upload: %d", res.StatusCode)
 	}
@@ -321,7 +305,7 @@ func TestUploadCover(t *testing.T) {
 		t.Fatal("bad upload set a cover")
 	}
 
-	res = upload(t, cc, s.URL, path, pngBytes(t, 1000, 1500))
+	res = cc.Multipart(path, nil, "cover", "cover.jpg", pngBytes(t, 1000, 1500))
 	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != itemPath {
 		t.Fatalf("upload: %d %s\n%s", res.StatusCode, res.Header.Get("Location"), res.Body)
 	}
@@ -341,7 +325,7 @@ func TestUploadCover(t *testing.T) {
 	if res := oc.Get(path); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("other GET: %d", res.StatusCode)
 	}
-	if res := upload(t, oc, s.URL, path, pngBytes(t, 10, 10)); res.StatusCode != http.StatusForbidden {
+	if res := oc.Multipart(path, nil, "cover", "cover.jpg", pngBytes(t, 10, 10)); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("other POST: %d", res.StatusCode)
 	}
 	if *loadItem().CoverImageID != *first {
@@ -349,7 +333,7 @@ func TestUploadCover(t *testing.T) {
 	}
 
 	ac := s.LoginAs(t, admin)
-	if res := upload(t, ac, s.URL, path, pngBytes(t, 50, 75)); res.StatusCode != http.StatusSeeOther {
+	if res := ac.Multipart(path, nil, "cover", "cover.jpg", pngBytes(t, 50, 75)); res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("admin replace: %d", res.StatusCode)
 	}
 	if now := loadItem().CoverImageID; now == nil || *now == *first {

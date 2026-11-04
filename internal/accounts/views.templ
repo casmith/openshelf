@@ -162,6 +162,20 @@ templ settingsPage(p ui.Page, s settingsData) {
 					}
 				</form>
 			}
+			@ui.Card("") {
+				<h2 id="data" class="mb-2 font-semibold">Your data</h2>
+				<p class="mb-4 text-sm text-muted">Download everything you've tracked, or bring in data from a file.</p>
+				<div class="flex flex-wrap gap-2">
+					@ui.LinkButton("secondary", "/settings/export") {
+						@ui.Icon("download", "h-4 w-4")
+						Export
+					}
+					@ui.LinkButton("secondary", "/settings/import") {
+						@ui.Icon("plus", "h-4 w-4")
+						Import
+					}
+				</div>
+			}
 		</div>
 	}
 }
