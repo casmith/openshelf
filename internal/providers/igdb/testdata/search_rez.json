@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1072,
+    "cover": {"id": 77011, "image_id": "co1nfn"},
+    "first_release_date": 1006387200,
+    "name": "Rez",
+    "platforms": [{"id": 8, "name": "PlayStation 2"}, {"id": 23, "name": "Dreamcast"}]
+  },
+  {
+    "id": 19560,
+    "cover": {"id": 85520, "image_id": "co1u0w"},
+    "first_release_date": 1444780800,
+    "name": "Rez Infinite",
+    "platforms": [{"id": 6, "name": "PC (Microsoft Windows)"}, {"id": 48, "name": "PlayStation 4"}]
+  }
+]

@@ -1,0 +1,21 @@
+[
+  {
+    "id": 1072,
+    "url": "https://www.igdb.com/games/rez",
+    "name": "Rez",
+    "summary": "A rail shooter in which the player hacks into a computer network, with music built from every shot.",
+    "first_release_date": 1006387200,
+    "cover": {"id": 77011, "image_id": "co1nfn"},
+    "genres": [{"id": 5, "name": "Shooter"}, {"id": 7, "name": "Music"}],
+    "franchises": [{"id": 1193, "name": "Rez"}],
+    "involved_companies": [
+      {"id": 5501, "company": {"id": 1005, "name": "United Game Artists"}, "developer": true, "publisher": false},
+      {"id": 5502, "company": {"id": 112, "name": "Sega"}, "developer": false, "publisher": true}
+    ],
+    "release_dates": [
+      {"id": 9001, "date": 1006387200, "platform": {"id": 23, "name": "Dreamcast"}, "region": 5, "release_region": 5},
+      {"id": 9002, "date": 1006387200, "platform": {"id": 8, "name": "PlayStation 2"}, "region": 5, "release_region": 5},
+      {"id": 9003, "date": 1017878400, "platform": {"id": 23, "name": "Dreamcast"}, "region": 5, "release_region": 5}
+    ]
+  }
+]
