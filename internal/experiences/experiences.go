@@ -17,3 +17,8 @@ func Register(mux *http.ServeMux, d *deps.Deps) {}
 func ItemPanel(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaItem) (templ.Component, error) {
 	return templ.NopComponent, nil
 }
+
+// QuickLog renders an inline progress/finish control for dashboard cards (used by S06).
+func QuickLog(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaItem) (templ.Component, error) {
+	return templ.NopComponent, nil
+}
