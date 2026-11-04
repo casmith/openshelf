@@ -24,6 +24,11 @@ templ Layout(p Page) {
 			</title>
 			<link rel="icon" href={ static.URL("logo.svg") } type="image/svg+xml"/>
 			<link rel="stylesheet" href={ static.URL("css/app.css") }/>
+			<link rel="manifest" href="/manifest.webmanifest"/>
+			<meta name="theme-color" content="#f6f5fb" media="(prefers-color-scheme: light)"/>
+			<meta name="theme-color" content="#12101f" media="(prefers-color-scheme: dark)"/>
+			<link rel="apple-touch-icon" href="/pwa/icon-192.png"/>
+			<script src="/pwa/register.js" defer></script>
 			<script src={ static.URL("htmx.min.js") } defer></script>
 		</head>
 		<body class="min-h-screen" hx-boost="true">
