@@ -1,0 +1,26 @@
+[
+  {
+    "id": 231,
+    "url": "https://www.igdb.com/games/half-life",
+    "name": "Half-Life",
+    "summary": "Gordon Freeman fights his way out of the Black Mesa Research Facility.",
+    "first_release_date": 910742400,
+    "cover": {"id": 112233, "image_id": "co4hsl"},
+    "genres": [{"id": 5, "name": "Shooter"}],
+    "franchise": {"id": 59, "name": "Half-Life"},
+    "involved_companies": [
+      {"id": 300, "company": {"id": 56, "name": "Valve"}, "developer": true, "publisher": true},
+      {"id": 301, "company": {"id": 9, "name": "Sierra Entertainment"}, "developer": false, "publisher": true}
+    ],
+    "release_dates": [
+      {"id": 501, "date": 911952000, "platform": {"id": 6, "name": "PC (Microsoft Windows)"}, "region": 8},
+      {"id": 502, "date": 910742400, "platform": {"id": 6, "name": "PC (Microsoft Windows)"}, "region": 8},
+      {"id": 503, "date": 1005004800, "platform": {"id": 8, "name": "PlayStation 2"}, "region": 2},
+      {"id": 504, "platform": {"id": 9999, "name": "Imaginary Console"}, "region": 8}
+    ],
+    "external_games": [
+      {"id": 7001, "category": 1, "external_game_source": 1, "uid": "70"},
+      {"id": 7002, "category": 5, "external_game_source": 5, "uid": "1207658888"}
+    ]
+  }
+]
