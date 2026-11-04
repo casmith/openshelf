@@ -28,7 +28,7 @@ These rules are what make fan-out safe. Every slice brief assumes them.
    - Slice `Snn`: `nn00–nn99`, for example S09 uses `00900_…sql`, S20 uses `02000_…sql`
    - Slice migrations may only **add** slice-private tables or indexes. They never alter foundation tables (that's a contract request).
 4. **SQL lives in your own query file:** `internal/db/queries/<slice>.sql`, where `<slice>` is the package name (e.g. `library.sql`). Prefix query names with your package (`LibraryListEntries`) to avoid collisions. Shared queries in `core.sql` (owned by F2) are read-only.
-5. **Never hand-edit or hand-merge generated files.** After merging, run `make generate` and commit the result.
+5. **Never hand-edit or hand-merge generated files.** After merging, run `make generate` and commit the result. Built CSS isn't committed.
 6. **Every read of user-owned data filters by viewer in SQL** (ADR 0004). Every slice includes a test proving user B can't see or modify user A's private rows through any of its routes.
 7. **Definition of done:** `make check` passes (generate-diff, `go vet`, lint, all tests). Every acceptance criterion in the brief has a test. The page works when you run `make dev` against `openshelf seed` data. The final report lists: what shipped, owned files touched, contract requests, and known follow-ups.
 8. **No new dependencies** beyond ADR 0001 without noting the reason in your report. No CGO. No JavaScript build step.

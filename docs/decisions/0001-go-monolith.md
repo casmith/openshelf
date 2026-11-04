@@ -26,7 +26,7 @@ Build **one Go binary** that serves HTTP, runs background jobs in-process, embed
 | CSRF | stdlib `http.CrossOriginProtection` | Plus `SameSite=Lax` session cookies |
 | HTML | [templ](https://templ.guide) | Type-checked components; generated `_templ.go` files are committed |
 | Interactivity | [htmx](https://htmx.org), vendored and embedded | Alpine.js only if a widget truly needs client state |
-| CSS | Tailwind CSS v4 **standalone CLI** | No Node; built CSS is embedded |
+| CSS | Tailwind CSS v4 **standalone CLI** | No Node; CSS is built at generate/image time and embedded |
 | DB driver | `jackc/pgx/v5` (`pgxpool`) | |
 | Queries | [sqlc](https://sqlc.dev) | Hand-written SQL, generated typed Go; generated code is committed |
 | Migrations | `pressly/goose/v3`, SQL files embedded with `embed.FS` | Run by `openshelf migrate` and on startup (configurable) |
@@ -73,5 +73,5 @@ openshelf user create --admin ...   # bootstrap admin from the CLI
 
 1. No new runtime services (Redis, Elasticsearch, Node, S3) without a new ADR.
 2. No CGO dependencies.
-3. Generated code (`*_templ.go`, `internal/db/*.sql.go`, `internal/web/static/app.css`) is committed. CI fails if `make generate` produces a diff. Never hand-edit or hand-merge generated files; regenerate them.
+3. Generated Go code (`*_templ.go`, `internal/db/*.go`) is committed, and CI fails if `make generate` produces a diff. The built CSS (`internal/web/static/css/app.css`) is not committed; `make generate`, CI, and the Dockerfile build it, which avoids a merge conflict on every UI change. Never hand-edit or hand-merge generated files; regenerate them.
 4. Every page must render meaningfully with JavaScript disabled where it's cheap to do so; htmx is an enhancement.

@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-//go:embed *.js *.css *.svg
+//go:embed *.js *.svg all:css
 var files embed.FS
 
 var hashes = func() map[string]string {
