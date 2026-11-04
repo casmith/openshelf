@@ -1,0 +1,47 @@
+{
+  "adult": false,
+  "backdrop_path": "/eIi3klFf7mp3oL5EEF4mLIDs26r.jpg",
+  "budget": 28000000,
+  "genres": [
+    {"id": 878, "name": "Science Fiction"},
+    {"id": 18, "name": "Drama"},
+    {"id": 53, "name": "Thriller"}
+  ],
+  "homepage": "",
+  "id": 78,
+  "imdb_id": "tt0083658",
+  "original_language": "en",
+  "original_title": "Blade Runner",
+  "overview": "In the smog-choked dystopian Los Angeles of 2019, blade runner Rick Deckard is called out of retirement.",
+  "poster_path": "/63N9uy8nd9j7Eog2axPQ8lbr3Wj.jpg",
+  "release_date": "1982-06-25",
+  "runtime": 117,
+  "status": "Released",
+  "tagline": "Man has made his match... now it's his problem.",
+  "title": "Blade Runner",
+  "credits": {
+    "cast": [
+      {"id": 3, "name": "Harrison Ford", "character": "Rick Deckard", "order": 0},
+      {"id": 585, "name": "Rutger Hauer", "character": "Roy Batty", "order": 1},
+      {"id": 586, "name": "Sean Young", "character": "Rachael", "order": 2},
+      {"id": 587, "name": "Edward James Olmos", "character": "Gaff", "order": 3},
+      {"id": 588, "name": "M. Emmet Walsh", "character": "Bryant", "order": 4},
+      {"id": 589, "name": "Daryl Hannah", "character": "Pris", "order": 5}
+    ],
+    "crew": [
+      {"id": 578, "name": "Ridley Scott", "department": "Directing", "job": "Director"},
+      {"id": 581, "name": "Hampton Fancher", "department": "Writing", "job": "Screenplay"},
+      {"id": 582, "name": "David Peoples", "department": "Writing", "job": "Screenplay"},
+      {"id": 582, "name": "David Peoples", "department": "Writing", "job": "Writer"},
+      {"id": 583, "name": "Philip K. Dick", "department": "Writing", "job": "Novel"},
+      {"id": 584, "name": "Vangelis", "department": "Sound", "job": "Original Music Composer"}
+    ]
+  },
+  "external_ids": {
+    "imdb_id": "tt0083658",
+    "wikidata_id": "Q184843",
+    "facebook_id": null,
+    "instagram_id": null,
+    "twitter_id": null
+  }
+}
