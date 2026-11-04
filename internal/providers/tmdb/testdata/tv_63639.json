@@ -1,0 +1,47 @@
+{
+  "adult": false,
+  "backdrop_path": "/lLMbU6wTKr8ZZYGk0EYR8bLUFkp.jpg",
+  "created_by": [
+    {"id": 1237589, "credit_id": "5b4d7d4e9251410d9a002a4f", "name": "Mark Fergus", "gender": 2, "profile_path": null},
+    {"id": 1237590, "credit_id": "5b4d7d4e9251410d9a002a50", "name": "Hawk Ostby", "gender": 2, "profile_path": null}
+  ],
+  "episode_run_time": [43],
+  "first_air_date": "2015-12-14",
+  "genres": [
+    {"id": 18, "name": "Drama"},
+    {"id": 10765, "name": "Sci-Fi & Fantasy"}
+  ],
+  "id": 63639,
+  "in_production": false,
+  "last_air_date": "2022-01-14",
+  "name": "The Expanse",
+  "networks": [
+    {"id": 77, "name": "Syfy", "logo_path": "/u4kTsN8nWZQ5Qm7c3Rjp8YQJmMy.png", "origin_country": "US"},
+    {"id": 1024, "name": "Prime Video", "logo_path": "/ifhbNuuVnlwYy5oXA5VIb2YR8AZ.png", "origin_country": ""}
+  ],
+  "number_of_episodes": 62,
+  "number_of_seasons": 6,
+  "original_language": "en",
+  "original_name": "The Expanse",
+  "overview": "A police detective in the asteroid belt, the first officer of an interplanetary ice freighter, and an earth-bound United Nations executive slowly discover a vast conspiracy.",
+  "poster_path": "/8djpxDeWpINnGhjpFXQjnBe6zbx.jpg",
+  "status": "Ended",
+  "type": "Scripted",
+  "credits": {
+    "cast": [
+      {"id": 1, "name": "Steven Strait", "character": "James Holden", "order": 0},
+      {"id": 2, "name": "Dominique Tipper", "character": "Naomi Nagata", "order": 1},
+      {"id": 4, "name": "Wes Chatham", "character": "Amos Burton", "order": 2}
+    ],
+    "crew": [
+      {"id": 5, "name": "Naren Shankar", "department": "Production", "job": "Executive Producer"}
+    ]
+  },
+  "external_ids": {
+    "imdb_id": "tt3230854",
+    "freebase_mid": "/m/0115d9xw",
+    "tvdb_id": 280619,
+    "tvrage_id": null,
+    "wikidata_id": "Q19600522"
+  }
+}
