@@ -1,0 +1,13 @@
+package web
+
+import "github.com/casmith/openshelf/internal/web/ui"
+
+templ errorPage(p ui.Page, title, body string) {
+	@ui.Layout(p) {
+		@ui.EmptyState(title, body) {
+			@ui.LinkButton("secondary", "/") {
+				Go home
+			}
+		}
+	}
+}

@@ -1,0 +1,233 @@
+package ui
+
+const (
+	btnBase      = "inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition disabled:opacity-50"
+	btnPrimary   = "bg-accent text-accent-fg hover:brightness-110"
+	btnSecondary = "border border-line bg-surface hover:bg-surface-2"
+	btnGhost     = "text-muted hover:bg-surface-2 hover:text-fg"
+	btnDanger    = "bg-danger text-white hover:brightness-110"
+	inputClass   = "block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm placeholder:text-muted focus:border-accent focus:outline-none"
+)
+
+func btnVariant(v string) string {
+	switch v {
+	case "secondary":
+		return btnSecondary
+	case "ghost":
+		return btnGhost
+	case "danger":
+		return btnDanger
+	default:
+		return btnPrimary
+	}
+}
+
+// Button variants: "primary" (default), "secondary", "ghost", "danger".
+templ Button(variant string, attrs templ.Attributes) {
+	<button class={ cx(btnBase, btnVariant(variant)) } { attrs... }>
+		{ children... }
+	</button>
+}
+
+templ LinkButton(variant string, href string) {
+	<a href={ templ.SafeURL(href) } class={ cx(btnBase, btnVariant(variant)) }>
+		{ children... }
+	</a>
+}
+
+templ PageHeader(title string, subtitle string) {
+	<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+		<div>
+			<h1 class="text-2xl font-semibold">{ title }</h1>
+			if subtitle != "" {
+				<p class="mt-1 text-sm text-muted">{ subtitle }</p>
+			}
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
+			{ children... }
+		</div>
+	</div>
+}
+
+templ label(name, text string) {
+	<label for={ "f-" + name } class="mb-1 block text-sm font-medium">{ text }</label>
+}
+
+templ fieldError(name, err string) {
+	if err != "" {
+		<p id={ "f-" + name + "-err" } class="mt-1 text-sm text-danger">{ err }</p>
+	}
+}
+
+func errAttrs(name, err string, attrs templ.Attributes) templ.Attributes {
+	a := templ.Attributes{}
+	for k, v := range attrs {
+		a[k] = v
+	}
+	if err != "" {
+		a["aria-invalid"] = "true"
+		a["aria-describedby"] = "f-" + name + "-err"
+	}
+	return a
+}
+
+// Field renders a labelled <input>. Pass extra attributes such as type, required, or placeholder.
+templ Field(name, text, value, err string, attrs templ.Attributes) {
+	<div>
+		@label(name, text)
+		<input id={ "f-" + name } name={ name } value={ value } class={ inputClass } { errAttrs(name, err, attrs)... }/>
+		@fieldError(name, err)
+	</div>
+}
+
+templ Textarea(name, text, value, err string, attrs templ.Attributes) {
+	<div>
+		@label(name, text)
+		<textarea id={ "f-" + name } name={ name } rows="4" class={ inputClass } { errAttrs(name, err, attrs)... }>{ value }</textarea>
+		@fieldError(name, err)
+	</div>
+}
+
+templ Select(name, text, value, err string, options []Option, attrs templ.Attributes) {
+	<div>
+		@label(name, text)
+		<select id={ "f-" + name } name={ name } class={ inputClass } { errAttrs(name, err, attrs)... }>
+			for _, o := range options {
+				<option value={ o.Value } selected?={ o.Value == value }>{ o.Label }</option>
+			}
+		</select>
+		@fieldError(name, err)
+	</div>
+}
+
+templ Checkbox(name, text string, checked bool) {
+	<label class="inline-flex items-center gap-2 text-sm">
+		<input type="checkbox" name={ name } checked?={ checked } class="h-4 w-4 rounded border-line accent-accent"/>
+		{ text }
+	</label>
+}
+
+templ FormErrors(errs map[string]string) {
+	if msg, ok := errs["_form"]; ok {
+		<p role="alert" class="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{ msg }</p>
+	}
+}
+
+templ Card(class string) {
+	<section class={ cx("rounded-lg border border-line bg-surface p-5", class) }>
+		{ children... }
+	</section>
+}
+
+templ Badge(text string) {
+	<span class="inline-flex items-center rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted">{ text }</span>
+}
+
+templ KindIcon(kind string, class string) {
+	@Icon(kind, class)
+}
+
+templ CoverGrid() {
+	<ul class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+		{ children... }
+	</ul>
+}
+
+templ CoverCard(c CoverCardProps) {
+	<li>
+		<a href={ templ.SafeURL(c.Href) } class="group block">
+			<div class="aspect-[2/3] overflow-hidden rounded-md border border-line bg-surface-2">
+				if c.CoverURL != "" {
+					<img src={ c.CoverURL } alt="" loading="lazy" class="h-full w-full object-cover transition group-hover:scale-[1.02]"/>
+				}
+			</div>
+			<p class="mt-2 truncate text-sm font-medium group-hover:text-accent">{ c.Title }</p>
+			<p class="flex items-center gap-1.5 text-xs text-muted">
+				if c.Kind != "" {
+					@KindIcon(c.Kind, "h-3.5 w-3.5")
+				}
+				<span class="truncate">{ c.Subtitle }</span>
+				if c.Chip != "" {
+					<span class="ml-auto">
+						@Badge(c.Chip)
+					</span>
+				}
+			</p>
+		</a>
+	</li>
+}
+
+templ Table() {
+	<div class="overflow-x-auto rounded-lg border border-line">
+		<table class="w-full text-left text-sm [&_td]:px-4 [&_td]:py-2 [&_th]:px-4 [&_th]:py-2 [&_th]:font-medium [&_th]:text-muted [&_thead]:bg-surface-2 [&_tr]:border-b [&_tr]:border-line">
+			{ children... }
+		</table>
+	</div>
+}
+
+templ Tabs(tabs []Tab) {
+	<nav class="mb-6 flex gap-1 overflow-x-auto border-b border-line" aria-label="Tabs">
+		for _, t := range tabs {
+			<a
+				href={ templ.SafeURL(t.Href) }
+				class={ "whitespace-nowrap border-b-2 px-3 py-2 text-sm",
+					templ.KV("border-accent font-medium", t.Active),
+					templ.KV("border-transparent text-muted hover:text-fg", !t.Active) }
+				if t.Active {
+					aria-current="page"
+				}
+			>{ t.Label }</a>
+		}
+	</nav>
+}
+
+templ EmptyState(title, body string) {
+	<div class="rounded-lg border border-dashed border-line px-6 py-12 text-center">
+		<p class="font-medium">{ title }</p>
+		if body != "" {
+			<p class="mt-1 text-sm text-muted">{ body }</p>
+		}
+		<div class="mt-4 flex justify-center gap-2">
+			{ children... }
+		</div>
+	</div>
+}
+
+// Pagination renders keyset prev/next links; pass "" to hide a direction.
+templ Pagination(prevHref, nextHref string) {
+	if prevHref != "" || nextHref != "" {
+		<nav class="mt-6 flex justify-between" aria-label="Pagination">
+			if prevHref != "" {
+				@LinkButton("secondary", prevHref) {
+					@Icon("left", "h-4 w-4")
+					Previous
+				}
+			} else {
+				<span></span>
+			}
+			if nextHref != "" {
+				@LinkButton("secondary", nextHref) {
+					Next
+					@Icon("right", "h-4 w-4")
+				}
+			}
+		</nav>
+	}
+}
+
+// Modal is a native <dialog>; open it with showModal() or render it with open via htmx.
+templ Modal(id, title string) {
+	<dialog id={ id } class="m-auto w-full max-w-lg rounded-lg border border-line bg-surface p-0 text-fg backdrop:bg-black/60" open?={ true }>
+		<div class="flex items-center justify-between border-b border-line px-5 py-3">
+			<h2 class="font-semibold">{ title }</h2>
+			<form method="dialog">
+				<button class="text-muted hover:text-fg" aria-label="Close">
+					@Icon("x", "h-5 w-5")
+				</button>
+			</form>
+		</div>
+		<div class="p-5">
+			{ children... }
+		</div>
+	</dialog>
+}
