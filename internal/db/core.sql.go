@@ -7,7 +7,136 @@ package db
 
 import (
 	"context"
+	"time"
+
+	"github.com/google/uuid"
 )
+
+const activityInsert = `-- name: ActivityInsert :one
+insert into activity_events (user_id, verb, media_item_id, library_entry_id, experience_id, review_id, list_id, visibility, occurred_at)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+returning id, public_id, user_id, verb, media_item_id, library_entry_id, experience_id, review_id, list_id, visibility, occurred_at, created_at
+`
+
+type ActivityInsertParams struct {
+	UserID         int64
+	Verb           ActivityVerb
+	MediaItemID    int64
+	LibraryEntryID *int64
+	ExperienceID   *int64
+	ReviewID       *int64
+	ListID         *int64
+	Visibility     Visibility
+	OccurredAt     time.Time
+}
+
+func (q *Queries) ActivityInsert(ctx context.Context, arg ActivityInsertParams) (ActivityEvent, error) {
+	row := q.db.QueryRow(ctx, activityInsert,
+		arg.UserID,
+		arg.Verb,
+		arg.MediaItemID,
+		arg.LibraryEntryID,
+		arg.ExperienceID,
+		arg.ReviewID,
+		arg.ListID,
+		arg.Visibility,
+		arg.OccurredAt,
+	)
+	var i ActivityEvent
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.UserID,
+		&i.Verb,
+		&i.MediaItemID,
+		&i.LibraryEntryID,
+		&i.ExperienceID,
+		&i.ReviewID,
+		&i.ListID,
+		&i.Visibility,
+		&i.OccurredAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const catalogSearch = `-- name: CatalogSearch :many
+select m.id, m.public_id, m.kind, m.title, m.sort_title, m.original_title, m.release_date, m.release_year, m.synopsis, m.genres, m.cover_image_id, m.metadata_provider, m.metadata_refreshed_at, m.locked_fields, m.created_by_user_id, m.created_at, m.updated_at,
+       (ts_rank(to_tsvector('simple', m.title || ' ' || coalesce(m.original_title, '')), websearch_to_tsquery('simple', $1::text)) + similarity(m.title, $1::text))::real as rank
+from media_items m
+where ($2::media_kind is null or m.kind = $2::media_kind)
+  and (to_tsvector('simple', m.title || ' ' || coalesce(m.original_title, '')) @@ websearch_to_tsquery('simple', $1::text)
+       or m.title % $1::text
+       or m.title ilike '%' || $1::text || '%')
+order by (lower(m.title) = lower($1::text)) desc, rank desc, m.sort_title
+limit $3::int
+`
+
+type CatalogSearchParams struct {
+	Query string
+	Kind  *MediaKind
+	Lim   int32
+}
+
+type CatalogSearchRow struct {
+	ID                  int64
+	PublicID            uuid.UUID
+	Kind                MediaKind
+	Title               string
+	SortTitle           string
+	OriginalTitle       *string
+	ReleaseDate         *time.Time
+	ReleaseYear         *int16
+	Synopsis            *string
+	Genres              []string
+	CoverImageID        *int64
+	MetadataProvider    *string
+	MetadataRefreshedAt *time.Time
+	LockedFields        []string
+	CreatedByUserID     *int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Rank                float32
+}
+
+func (q *Queries) CatalogSearch(ctx context.Context, arg CatalogSearchParams) ([]CatalogSearchRow, error) {
+	rows, err := q.db.Query(ctx, catalogSearch, arg.Query, arg.Kind, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CatalogSearchRow{}
+	for rows.Next() {
+		var i CatalogSearchRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.Kind,
+			&i.Title,
+			&i.SortTitle,
+			&i.OriginalTitle,
+			&i.ReleaseDate,
+			&i.ReleaseYear,
+			&i.Synopsis,
+			&i.Genres,
+			&i.CoverImageID,
+			&i.MetadataProvider,
+			&i.MetadataRefreshedAt,
+			&i.LockedFields,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Rank,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const countUsers = `-- name: CountUsers :one
 select count(*) from users
@@ -61,6 +190,289 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const findMediaItemByExternalID = `-- name: FindMediaItemByExternalID :one
+select m.id, m.public_id, m.kind, m.title, m.sort_title, m.original_title, m.release_date, m.release_year, m.synopsis, m.genres, m.cover_image_id, m.metadata_provider, m.metadata_refreshed_at, m.locked_fields, m.created_by_user_id, m.created_at, m.updated_at from media_items m
+join external_ids x on x.media_item_id = m.id
+where x.provider = $1 and x.value = $2
+`
+
+type FindMediaItemByExternalIDParams struct {
+	Provider string
+	Value    string
+}
+
+func (q *Queries) FindMediaItemByExternalID(ctx context.Context, arg FindMediaItemByExternalIDParams) (MediaItem, error) {
+	row := q.db.QueryRow(ctx, findMediaItemByExternalID, arg.Provider, arg.Value)
+	var i MediaItem
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.Kind,
+		&i.Title,
+		&i.SortTitle,
+		&i.OriginalTitle,
+		&i.ReleaseDate,
+		&i.ReleaseYear,
+		&i.Synopsis,
+		&i.Genres,
+		&i.CoverImageID,
+		&i.MetadataProvider,
+		&i.MetadataRefreshedAt,
+		&i.LockedFields,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const findPlatformByName = `-- name: FindPlatformByName :one
+select p.id, p.slug, p.name, p.short_name, p.manufacturer, p.kind, p.family, p.generation, p.release_year, p.created_at, p.updated_at from platforms p
+where lower(p.name) = lower($1::text)
+   or lower(p.short_name) = lower($1::text)
+   or p.slug = lower($1::text)
+   or exists (select 1 from platform_aliases a where a.platform_id = p.id and lower(a.alias::text) = lower($1::text))
+order by p.id
+limit 1
+`
+
+func (q *Queries) FindPlatformByName(ctx context.Context, name string) (Platform, error) {
+	row := q.db.QueryRow(ctx, findPlatformByName, name)
+	var i Platform
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.ShortName,
+		&i.Manufacturer,
+		&i.Kind,
+		&i.Family,
+		&i.Generation,
+		&i.ReleaseYear,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getBookDetails = `-- name: GetBookDetails :one
+select media_item_id, series_name, series_position from book_details where media_item_id = $1
+`
+
+func (q *Queries) GetBookDetails(ctx context.Context, mediaItemID int64) (BookDetail, error) {
+	row := q.db.QueryRow(ctx, getBookDetails, mediaItemID)
+	var i BookDetail
+	err := row.Scan(&i.MediaItemID, &i.SeriesName, &i.SeriesPosition)
+	return i, err
+}
+
+const getFilmDetails = `-- name: GetFilmDetails :one
+select media_item_id, runtime_minutes from film_details where media_item_id = $1
+`
+
+func (q *Queries) GetFilmDetails(ctx context.Context, mediaItemID int64) (FilmDetail, error) {
+	row := q.db.QueryRow(ctx, getFilmDetails, mediaItemID)
+	var i FilmDetail
+	err := row.Scan(&i.MediaItemID, &i.RuntimeMinutes)
+	return i, err
+}
+
+const getGameDetails = `-- name: GetGameDetails :one
+select media_item_id, franchise from game_details where media_item_id = $1
+`
+
+func (q *Queries) GetGameDetails(ctx context.Context, mediaItemID int64) (GameDetail, error) {
+	row := q.db.QueryRow(ctx, getGameDetails, mediaItemID)
+	var i GameDetail
+	err := row.Scan(&i.MediaItemID, &i.Franchise)
+	return i, err
+}
+
+const getImage = `-- name: GetImage :one
+select id, source_url, sha256, content_type, width, height, status, error, fetched_at, created_at from images where id = $1
+`
+
+func (q *Queries) GetImage(ctx context.Context, id int64) (Image, error) {
+	row := q.db.QueryRow(ctx, getImage, id)
+	var i Image
+	err := row.Scan(
+		&i.ID,
+		&i.SourceUrl,
+		&i.Sha256,
+		&i.ContentType,
+		&i.Width,
+		&i.Height,
+		&i.Status,
+		&i.Error,
+		&i.FetchedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getMediaItemByID = `-- name: GetMediaItemByID :one
+select id, public_id, kind, title, sort_title, original_title, release_date, release_year, synopsis, genres, cover_image_id, metadata_provider, metadata_refreshed_at, locked_fields, created_by_user_id, created_at, updated_at from media_items where id = $1
+`
+
+func (q *Queries) GetMediaItemByID(ctx context.Context, id int64) (MediaItem, error) {
+	row := q.db.QueryRow(ctx, getMediaItemByID, id)
+	var i MediaItem
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.Kind,
+		&i.Title,
+		&i.SortTitle,
+		&i.OriginalTitle,
+		&i.ReleaseDate,
+		&i.ReleaseYear,
+		&i.Synopsis,
+		&i.Genres,
+		&i.CoverImageID,
+		&i.MetadataProvider,
+		&i.MetadataRefreshedAt,
+		&i.LockedFields,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getMediaItemByPublicID = `-- name: GetMediaItemByPublicID :one
+select id, public_id, kind, title, sort_title, original_title, release_date, release_year, synopsis, genres, cover_image_id, metadata_provider, metadata_refreshed_at, locked_fields, created_by_user_id, created_at, updated_at from media_items where public_id = $1
+`
+
+func (q *Queries) GetMediaItemByPublicID(ctx context.Context, publicID uuid.UUID) (MediaItem, error) {
+	row := q.db.QueryRow(ctx, getMediaItemByPublicID, publicID)
+	var i MediaItem
+	err := row.Scan(
+		&i.ID,
+		&i.PublicID,
+		&i.Kind,
+		&i.Title,
+		&i.SortTitle,
+		&i.OriginalTitle,
+		&i.ReleaseDate,
+		&i.ReleaseYear,
+		&i.Synopsis,
+		&i.Genres,
+		&i.CoverImageID,
+		&i.MetadataProvider,
+		&i.MetadataRefreshedAt,
+		&i.LockedFields,
+		&i.CreatedByUserID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getMediaItemsByIDs = `-- name: GetMediaItemsByIDs :many
+select id, public_id, kind, title, sort_title, original_title, release_date, release_year, synopsis, genres, cover_image_id, metadata_provider, metadata_refreshed_at, locked_fields, created_by_user_id, created_at, updated_at from media_items where id = any($1::bigint[])
+`
+
+func (q *Queries) GetMediaItemsByIDs(ctx context.Context, ids []int64) ([]MediaItem, error) {
+	rows, err := q.db.Query(ctx, getMediaItemsByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MediaItem{}
+	for rows.Next() {
+		var i MediaItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.Kind,
+			&i.Title,
+			&i.SortTitle,
+			&i.OriginalTitle,
+			&i.ReleaseDate,
+			&i.ReleaseYear,
+			&i.Synopsis,
+			&i.Genres,
+			&i.CoverImageID,
+			&i.MetadataProvider,
+			&i.MetadataRefreshedAt,
+			&i.LockedFields,
+			&i.CreatedByUserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPlatformByID = `-- name: GetPlatformByID :one
+select id, slug, name, short_name, manufacturer, kind, family, generation, release_year, created_at, updated_at from platforms where id = $1
+`
+
+func (q *Queries) GetPlatformByID(ctx context.Context, id int64) (Platform, error) {
+	row := q.db.QueryRow(ctx, getPlatformByID, id)
+	var i Platform
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.ShortName,
+		&i.Manufacturer,
+		&i.Kind,
+		&i.Family,
+		&i.Generation,
+		&i.ReleaseYear,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getPlatformBySlug = `-- name: GetPlatformBySlug :one
+select id, slug, name, short_name, manufacturer, kind, family, generation, release_year, created_at, updated_at from platforms where slug = $1
+`
+
+func (q *Queries) GetPlatformBySlug(ctx context.Context, slug string) (Platform, error) {
+	row := q.db.QueryRow(ctx, getPlatformBySlug, slug)
+	var i Platform
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Name,
+		&i.ShortName,
+		&i.Manufacturer,
+		&i.Kind,
+		&i.Family,
+		&i.Generation,
+		&i.ReleaseYear,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getShowDetails = `-- name: GetShowDetails :one
+select media_item_id, network, status, season_count, episode_count from show_details where media_item_id = $1
+`
+
+func (q *Queries) GetShowDetails(ctx context.Context, mediaItemID int64) (ShowDetail, error) {
+	row := q.db.QueryRow(ctx, getShowDetails, mediaItemID)
+	var i ShowDetail
+	err := row.Scan(
+		&i.MediaItemID,
+		&i.Network,
+		&i.Status,
+		&i.SeasonCount,
+		&i.EpisodeCount,
+	)
+	return i, err
+}
+
 const getUserByID = `-- name: GetUserByID :one
 select id, public_id, username, display_name, email, password_hash, role, default_visibility, rating_display, timezone, disabled_at, created_at, updated_at from users where id = $1
 `
@@ -109,4 +521,239 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const imageUpsertByURL = `-- name: ImageUpsertByURL :one
+insert into images (source_url) values ($1::text)
+on conflict (source_url) do update set source_url = excluded.source_url
+returning id
+`
+
+func (q *Queries) ImageUpsertByURL(ctx context.Context, sourceUrl string) (int64, error) {
+	row := q.db.QueryRow(ctx, imageUpsertByURL, sourceUrl)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const listCreditsForItems = `-- name: ListCreditsForItems :many
+select c.media_item_id, c.role, c.position, cr.id as creator_id, cr.public_id as creator_public_id, cr.name
+from credits c
+join creators cr on cr.id = c.creator_id
+where c.media_item_id = any($1::bigint[])
+order by c.media_item_id, c.role, c.position
+`
+
+type ListCreditsForItemsRow struct {
+	MediaItemID     int64
+	Role            CreditRole
+	Position        int16
+	CreatorID       int64
+	CreatorPublicID uuid.UUID
+	Name            string
+}
+
+func (q *Queries) ListCreditsForItems(ctx context.Context, itemIds []int64) ([]ListCreditsForItemsRow, error) {
+	rows, err := q.db.Query(ctx, listCreditsForItems, itemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCreditsForItemsRow{}
+	for rows.Next() {
+		var i ListCreditsForItemsRow
+		if err := rows.Scan(
+			&i.MediaItemID,
+			&i.Role,
+			&i.Position,
+			&i.CreatorID,
+			&i.CreatorPublicID,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEditionsForItem = `-- name: ListEditionsForItem :many
+select e.id, e.public_id, e.media_item_id, e.title, e.format, e.platform_id, e.region, e.publisher, e.release_date, e.page_count, e.duration_minutes, e.cover_image_id, e.created_at, e.updated_at, p.name as platform_name, p.short_name as platform_short_name, p.slug as platform_slug
+from editions e
+left join platforms p on p.id = e.platform_id
+where e.media_item_id = $1
+order by e.release_date nulls last, e.id
+`
+
+type ListEditionsForItemRow struct {
+	ID                int64
+	PublicID          uuid.UUID
+	MediaItemID       int64
+	Title             *string
+	Format            *EditionFormat
+	PlatformID        *int64
+	Region            *string
+	Publisher         *string
+	ReleaseDate       *time.Time
+	PageCount         *int32
+	DurationMinutes   *int32
+	CoverImageID      *int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	PlatformName      *string
+	PlatformShortName *string
+	PlatformSlug      *string
+}
+
+func (q *Queries) ListEditionsForItem(ctx context.Context, mediaItemID int64) ([]ListEditionsForItemRow, error) {
+	rows, err := q.db.Query(ctx, listEditionsForItem, mediaItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEditionsForItemRow{}
+	for rows.Next() {
+		var i ListEditionsForItemRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.PublicID,
+			&i.MediaItemID,
+			&i.Title,
+			&i.Format,
+			&i.PlatformID,
+			&i.Region,
+			&i.Publisher,
+			&i.ReleaseDate,
+			&i.PageCount,
+			&i.DurationMinutes,
+			&i.CoverImageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.PlatformName,
+			&i.PlatformShortName,
+			&i.PlatformSlug,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExternalIDsForItem = `-- name: ListExternalIDsForItem :many
+select id, provider, value, url, media_item_id, edition_id, platform_id, creator_id, last_seen_at from external_ids where media_item_id = $1 order by provider
+`
+
+func (q *Queries) ListExternalIDsForItem(ctx context.Context, mediaItemID *int64) ([]ExternalID, error) {
+	rows, err := q.db.Query(ctx, listExternalIDsForItem, mediaItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ExternalID{}
+	for rows.Next() {
+		var i ExternalID
+		if err := rows.Scan(
+			&i.ID,
+			&i.Provider,
+			&i.Value,
+			&i.Url,
+			&i.MediaItemID,
+			&i.EditionID,
+			&i.PlatformID,
+			&i.CreatorID,
+			&i.LastSeenAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPlatforms = `-- name: ListPlatforms :many
+select id, slug, name, short_name, manufacturer, kind, family, generation, release_year, created_at, updated_at from platforms order by family nulls last, generation nulls last, release_year nulls last, name
+`
+
+func (q *Queries) ListPlatforms(ctx context.Context) ([]Platform, error) {
+	rows, err := q.db.Query(ctx, listPlatforms)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Platform{}
+	for rows.Next() {
+		var i Platform
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.ShortName,
+			&i.Manufacturer,
+			&i.Kind,
+			&i.Family,
+			&i.Generation,
+			&i.ReleaseYear,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchPlatforms = `-- name: SearchPlatforms :many
+select distinct p.id, p.slug, p.name, p.short_name, p.manufacturer, p.kind, p.family, p.generation, p.release_year, p.created_at, p.updated_at from platforms p
+left join platform_aliases a on a.platform_id = p.id
+where p.name ilike '%' || $1::text || '%'
+   or p.short_name ilike '%' || $1::text || '%'
+   or a.alias::text ilike '%' || $1::text || '%'
+order by p.name
+limit 20
+`
+
+func (q *Queries) SearchPlatforms(ctx context.Context, query string) ([]Platform, error) {
+	rows, err := q.db.Query(ctx, searchPlatforms, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Platform{}
+	for rows.Next() {
+		var i Platform
+		if err := rows.Scan(
+			&i.ID,
+			&i.Slug,
+			&i.Name,
+			&i.ShortName,
+			&i.Manufacturer,
+			&i.Kind,
+			&i.Family,
+			&i.Generation,
+			&i.ReleaseYear,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

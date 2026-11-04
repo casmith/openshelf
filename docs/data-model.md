@@ -112,12 +112,12 @@ create table media_items (
   metadata_refreshed_at timestamptz,
   locked_fields         text[] not null default '{}',  -- ADR 0002: skipped on provider refresh
   created_by_user_id    bigint references users on delete set null,
-  search                tsvector generated always as
-                          (to_tsvector('simple', title || ' ' || coalesce(original_title, ''))) stored,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
 );
-create index media_items_search_idx on media_items using gin (search);
+-- Full-text search uses this exact expression so the index applies.
+create index media_items_search_idx on media_items
+  using gin (to_tsvector('simple', title || ' ' || coalesce(original_title, '')));
 create index media_items_title_trgm_idx on media_items using gin (title gin_trgm_ops);
 create index media_items_kind_sort_idx on media_items (kind, sort_title);
 create index media_items_genres_idx on media_items using gin (genres);
