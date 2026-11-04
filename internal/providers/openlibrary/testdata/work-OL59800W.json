@@ -1,0 +1,40 @@
+{
+ "key": "/works/OL59800W",
+ "title": "The Left Hand of Darkness",
+ "authors": [
+  {
+   "author": {
+    "key": "/authors/OL31353A"
+   },
+   "type": {
+    "key": "/type/author_role"
+   }
+  }
+ ],
+ "description": {
+  "type": "/type/text",
+  "value": "A lone human emissary is sent to Winter, an alien world whose inhabitants can choose and change their gender."
+ },
+ "subjects": [
+  "Ciencia-ficción",
+  "Hugo Award Winner",
+  "award:hugo_award=1970",
+  "award:hugo_award=novel",
+  "human nature",
+  "gender",
+  "space travel",
+  "ice age",
+  "Science fiction",
+  "American literature",
+  "Fiction, science fiction, general",
+  "LGBTQ gender identity",
+  "LGBTQ science fiction & fantasy",
+  "award:nebula_award=novel"
+ ],
+ "covers": [
+  10618463,
+  13483103,
+  11932333
+ ],
+ "first_publish_date": "1969"
+}
