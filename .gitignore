@@ -4,3 +4,4 @@
 *.test
 *.out
 /internal/web/static/css/app.css
+/.claude/

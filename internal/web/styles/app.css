@@ -13,6 +13,11 @@
   --color-accent-fg: var(--os-accent-fg);
   --color-danger: var(--os-danger);
   --color-success: var(--os-success);
+  --color-warning: var(--os-warning);
+  --color-kind-game: var(--os-kind-game);
+  --color-kind-book: var(--os-kind-book);
+  --color-kind-film: var(--os-kind-film);
+  --color-kind-show: var(--os-kind-show);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -27,6 +32,11 @@
   --os-accent-fg: #ffffff;
   --os-danger: #dc2626;
   --os-success: #16a34a;
+  --os-warning: #b45309;
+  --os-kind-game: #7c3aed;
+  --os-kind-book: #0e7490;
+  --os-kind-film: #c2410c;
+  --os-kind-show: #be185d;
   color-scheme: light;
 }
 
@@ -42,6 +52,11 @@
     --os-accent-fg: #ffffff;
     --os-danger: #f87171;
     --os-success: #4ade80;
+    --os-warning: #fbbf24;
+    --os-kind-game: #a78bfa;
+    --os-kind-book: #22d3ee;
+    --os-kind-film: #fb923c;
+    --os-kind-show: #f472b6;
     color-scheme: dark;
   }
 }
