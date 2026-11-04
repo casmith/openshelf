@@ -1,0 +1,278 @@
+package reviews
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+const starPath = "m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"
+
+var visibilityOptions = []ui.Option{
+	{Value: string(db.VisibilityPrivate), Label: "Private (only you)"},
+	{Value: string(db.VisibilityInstance), Label: "Instance (anyone signed in here)"},
+	{Value: string(db.VisibilityPublic), Label: "Public"},
+}
+
+func visibilityLabel(v db.Visibility) string {
+	switch v {
+	case db.VisibilityInstance:
+		return "Instance"
+	case db.VisibilityPublic:
+		return "Public"
+	}
+	return "Private"
+}
+
+templ starSVG(class string) {
+	<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class={ class }><path d={ starPath }></path></svg>
+}
+
+// RatingDisplay renders a stored 0–100 rating in the viewer's display scale (used by S02, S06, S07).
+templ RatingDisplay(display db.RatingDisplay, rating *int16) {
+	if rating != nil {
+		if display == db.RatingDisplayTen || display == db.RatingDisplayHundred {
+			<span class="inline-flex items-center gap-1 text-sm font-medium">
+				@starSVG("h-4 w-4 text-accent")
+				{ FormatRating(display, *rating) }
+			</span>
+		} else {
+			<span class="inline-flex items-center">
+				<span class="flex" aria-hidden="true">
+					for i := range 5 {
+						<span class="relative inline-block h-4 w-4">
+							@starSVG("absolute inset-0 h-4 w-4 text-line")
+							if f := starFill(*rating, i); f > 0 {
+								<span class={ "absolute inset-y-0 left-0 overflow-hidden", templ.KV("w-1/2", f == 1), templ.KV("w-full", f == 2) }>
+									@starSVG("h-4 w-4 text-accent")
+								</span>
+							}
+						</span>
+					}
+				</span>
+				<span class="sr-only">{ formatStars(*rating) } out of 5 stars</span>
+			</span>
+		}
+	}
+}
+
+// RatingInput renders a rating form control named name for the given display scale.
+// Every scale submits a 0–100 value (or "" for no rating); parse it with ParseRating.
+templ RatingInput(name string, display db.RatingDisplay, value *int16) {
+	switch display {
+		case db.RatingDisplayTen:
+			@ui.Select(name, "Rating", snapTen(value), "", tenOptions(), nil)
+		case db.RatingDisplayHundred:
+			@ui.Field(name, "Rating (0–100)", hundredValue(value), "", templ.Attributes{"type": "number", "min": "0", "max": "100", "step": "1", "inputmode": "numeric"})
+		default:
+			@starInput(name, snapStars(value))
+	}
+}
+
+func hundredValue(v *int16) string {
+	if v == nil {
+		return ""
+	}
+	return strconv.Itoa(int(*v))
+}
+
+// starInput is a radio group: later stars are dimmed via sibling selectors, so
+// the "none" radio comes first and all inputs share one parent.
+templ starInput(name, checked string) {
+	<fieldset>
+		<legend class="mb-1 block text-sm font-medium">Rating</legend>
+		<div class="flex items-center [&>[data-star]]:cursor-pointer [&>[data-star]]:text-accent [&>input:checked~input+[data-star]]:text-line [&>input:focus-visible+label]:rounded-sm [&>input:focus-visible+label]:outline-2 [&>input:focus-visible+label]:outline-offset-2 [&>input:focus-visible+label]:outline-accent">
+			<input type="radio" id={ "f-" + name + "-none" } name={ name } value="" class="sr-only" checked?={ checked == "" }/>
+			<label for={ "f-" + name + "-none" } class="mr-3 cursor-pointer text-sm text-muted hover:text-fg">No rating</label>
+			for _, o := range starOptions() {
+				<input type="radio" id={ "f-" + name + "-" + o.Value } name={ name } value={ o.Value } class="sr-only" checked?={ checked == o.Value }/>
+				<label for={ "f-" + name + "-" + o.Value } data-star class="block h-7 w-3.5 overflow-hidden">
+					@starSVG(starHalfClass(o.Half))
+					<span class="sr-only">{ o.Label }</span>
+				</label>
+			}
+		</div>
+	</fieldset>
+}
+
+func starHalfClass(left bool) string {
+	if left {
+		return "h-7 w-7 max-w-none"
+	}
+	return "-ml-3.5 h-7 w-7 max-w-none"
+}
+
+templ reviewBody(r db.Review) {
+	if r.Body != nil {
+		if r.ContainsSpoilers {
+			<details class="mt-2 rounded-md border border-line bg-surface-2 px-3 py-2">
+				<summary class="cursor-pointer text-sm font-medium">Contains spoilers. Show review</summary>
+				@paragraphs(r.Body)
+			</details>
+		} else {
+			@paragraphs(r.Body)
+		}
+	}
+}
+
+templ paragraphs(body *string) {
+	<div class="mt-2 max-w-prose space-y-3 text-sm leading-relaxed">
+		for _, p := range Paragraphs(body) {
+			<p class="whitespace-pre-line">{ p }</p>
+		}
+	</div>
+}
+
+templ panel(display db.RatingDisplay, item db.MediaItem, own *db.Review, others []db.ReviewsListOthersForItemRow) {
+	@ui.Card("") {
+		<div class="flex items-center justify-between gap-2">
+			<h2 class="font-semibold">Your review</h2>
+			@ui.LinkButton("secondary", "/items/"+item.PublicID.String()+"/review") {
+				if own != nil {
+					@ui.Icon("edit", "h-4 w-4")
+					Edit
+				} else {
+					@ui.Icon("star", "h-4 w-4")
+					Rate or review
+				}
+			}
+		</div>
+		if own != nil {
+			<div class="mt-3">
+				@RatingDisplay(display, own.Rating)
+				@reviewBody(*own)
+				<p class="mt-2 text-xs text-muted">
+					<a href={ templ.SafeURL("/reviews/" + own.PublicID.String()) } class="hover:text-accent">Permalink</a>
+					· { visibilityLabel(own.Visibility) }
+				</p>
+			</div>
+		} else {
+			<p class="mt-3 text-sm text-muted">You haven't rated or reviewed this yet.</p>
+		}
+		if len(others) > 0 {
+			<h3 class="mt-6 text-sm font-medium text-muted">Other reviews</h3>
+			<ul class="mt-2 divide-y divide-line">
+				for _, o := range others {
+					<li class="py-3">
+						<p class="flex items-center gap-2 text-sm">
+							<a href={ templ.SafeURL("/reviews/" + o.Review.PublicID.String()) } class="font-medium hover:text-accent">{ o.DisplayName }</a>
+							@RatingDisplay(display, o.Review.Rating)
+						</p>
+						@reviewBody(o.Review)
+					</li>
+				}
+			</ul>
+		}
+	}
+}
+
+func experienceLabel(state db.ExperienceState, started, finished *string) string {
+	label := map[db.ExperienceState]string{
+		db.ExperienceStateActive: "In progress", db.ExperienceStatePaused: "Paused",
+		db.ExperienceStateFinished: "Finished", db.ExperienceStateAbandoned: "Abandoned",
+	}[state]
+	switch {
+	case finished != nil:
+		label += " " + *finished
+	case started != nil:
+		label += ", started " + *started
+	}
+	return label
+}
+
+func dateStr(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.Format(time.DateOnly)
+	return &s
+}
+
+func experienceOptions(exps []db.ReviewsListOwnExperiencesForItemRow) []ui.Option {
+	opts := []ui.Option{{Value: "", Label: "None"}}
+	for _, e := range exps {
+		opts = append(opts, ui.Option{Value: e.PublicID.String(), Label: experienceLabel(e.State, dateStr(e.StartedOn), dateStr(e.FinishedOn))})
+	}
+	return opts
+}
+
+templ formPage(p ui.Page, fd formData) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Review", fd.Item.Title) {
+			@ui.LinkButton("ghost", "/items/"+fd.Item.PublicID.String()) {
+				Back to item
+			}
+		}
+		@ui.Card("max-w-2xl") {
+			<form method="post" action={ templ.SafeURL("/items/" + fd.Item.PublicID.String() + "/review") } class="space-y-5">
+				@ui.FormErrors(fd.Form.Errors)
+				<div>
+					@RatingInput("rating", fd.Display, fd.Rating)
+					if e := fd.Form.Error("rating"); e != "" {
+						<p class="mt-1 text-sm text-danger">{ e }</p>
+					}
+				</div>
+				@ui.Textarea("body", "Review", fd.Form.Values.Get("body"), fd.Form.Error("body"), templ.Attributes{"rows": "8", "maxlength": "20000", "aria-describedby": "f-body-help"})
+				<p id="f-body-help" class="-mt-4 text-xs text-muted">Plain text. Leave a blank line between paragraphs.</p>
+				@ui.Checkbox("spoilers", "Contains spoilers", fd.Form.Bool("spoilers"))
+				@ui.Select("visibility", "Visibility", fd.Form.Get("visibility"), fd.Form.Error("visibility"), visibilityOptions, nil)
+				if len(fd.Experiences) > 0 {
+					@ui.Select("experience", "Linked experience", fd.Form.Get("experience"), fd.Form.Error("experience"), experienceOptions(fd.Experiences), nil)
+				}
+				<div class="flex items-center gap-2">
+					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+						Save review
+					}
+				</div>
+			</form>
+			if fd.Existing != nil {
+				@deleteButton(fd.Existing.PublicID.String())
+			}
+		}
+	}
+}
+
+templ deleteButton(id string) {
+	<form method="post" action={ templ.SafeURL("/reviews/" + id + "/delete") } hx-delete={ "/reviews/" + id } hx-confirm="Delete this review?" class="mt-4">
+		@ui.Button("danger", templ.Attributes{"type": "submit"}) {
+			@ui.Icon("trash", "h-4 w-4")
+			Delete review
+		}
+	</form>
+}
+
+templ showPage(p ui.Page, row db.ReviewsGetVisibleRow, display db.RatingDisplay, owner bool) {
+	@ui.Layout(p) {
+		<article class="max-w-2xl">
+			<p class="flex items-center gap-1.5 text-sm text-muted">
+				@ui.KindIcon(string(row.ItemKind), "h-4 w-4")
+				Review by { row.DisplayName }
+			</p>
+			<h1 class="mt-1 text-2xl font-semibold">
+				<a href={ templ.SafeURL("/items/" + row.ItemPublicID.String()) } class="hover:text-accent">{ row.ItemTitle }</a>
+			</h1>
+			<div class="mt-3">
+				@RatingDisplay(display, row.Review.Rating)
+			</div>
+			@reviewBody(row.Review)
+			<p class="mt-4 text-xs text-muted">
+				Updated { row.Review.UpdatedAt.Format("2006-01-02") }
+				if row.ExperienceState != nil {
+					· { experienceLabel(*row.ExperienceState, dateStr(row.ExperienceStartedOn), dateStr(row.ExperienceFinishedOn)) }
+				}
+				· { visibilityLabel(row.Review.Visibility) }
+			</p>
+			if owner {
+				<div class="mt-6 flex flex-wrap items-start gap-2">
+					@ui.LinkButton("secondary", "/items/"+row.ItemPublicID.String()+"/review") {
+						@ui.Icon("edit", "h-4 w-4")
+						Edit
+					}
+					@deleteButton(row.Review.PublicID.String())
+				</div>
+			}
+		</article>
+	}
+}
