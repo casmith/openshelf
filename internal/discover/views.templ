@@ -192,5 +192,14 @@ templ adminPage(p ui.Page, rows []providerRow) {
 				}
 			</tbody>
 		}
+		@ui.Card("mt-6") {
+			<h2 class="font-semibold">Missing covers</h2>
+			<p class="mt-1 text-sm text-muted">Search configured providers for items without a cover (for example manual or demo items) and use the cover of an exact title match.</p>
+			<form method="post" action="/admin/providers/covers" class="mt-4">
+				@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+					Find missing covers
+				}
+			</form>
+		}
 	}
 }

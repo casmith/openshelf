@@ -28,6 +28,7 @@ func Register(mux *http.ServeMux, d *deps.Deps) {
 	mux.Handle("POST /discover/import", wrap(auth.RequireUser, importItem))
 	mux.Handle("POST /items/{id}/refresh", wrap(auth.RequireAdmin, refreshItem))
 	mux.Handle("GET /admin/providers", wrap(auth.RequireAdmin, adminProviders))
+	mux.Handle("POST /admin/providers/covers", wrap(auth.RequireAdmin, backfillCovers))
 }
 
 type pageData struct {
@@ -166,4 +167,13 @@ func adminProviders(w http.ResponseWriter, r *http.Request, d *deps.Deps) {
 		rows = append(rows, providerRow{Name: p.Name(), Kinds: p.Kinds(), Configured: p.Configured(), Status: statusFor(p.Name())})
 	}
 	web.Render(w, r, http.StatusOK, adminPage(web.PageFor(r, d, "Providers", ""), rows))
+}
+
+func backfillCovers(w http.ResponseWriter, r *http.Request, d *deps.Deps) {
+	if _, err := d.River.Insert(r.Context(), BackfillCoversArgs{}, nil); err != nil {
+		web.Error(w, r, d, err)
+		return
+	}
+	web.Flash(r.Context(), d, "Looking up missing covers in the background. Refresh in a minute.")
+	web.Redirect(w, r, "/admin/providers")
 }

@@ -118,3 +118,13 @@ join media_items m on m.id = s.media_item_id
 where m.metadata_refreshed_at is null or m.metadata_refreshed_at < @cutoff::timestamptz
 order by m.metadata_refreshed_at nulls first, m.id
 limit @lim::int;
+
+-- name: DiscoverItemsMissingCovers :many
+select id, kind, title, release_year from media_items
+where cover_image_id is null and not ('cover_image_id' = any(locked_fields))
+order by id
+limit @lim::int;
+
+-- name: DiscoverSetCoverIfMissing :exec
+update media_items set cover_image_id = @image_id, updated_at = now()
+where id = @id and cover_image_id is null;
