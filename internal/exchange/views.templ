@@ -1,0 +1,205 @@
+package exchange
+
+import (
+	"strconv"
+	"strings"
+
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/web/form"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+func jobURL(id string) string { return "/settings/import/" + id }
+
+func statusLabel(s string) string {
+	switch s {
+	case StatusPreviewing:
+		return "Analyzing"
+	case StatusPreviewed:
+		return "Ready to import"
+	case StatusQueued:
+		return "Importing"
+	case StatusDone:
+		return "Imported"
+	case StatusFailed:
+		return "Failed"
+	}
+	return s
+}
+
+func pending(s string) bool { return s == StatusPreviewing || s == StatusQueued }
+
+func itoa(n int32) string { return strconv.Itoa(int(n)) }
+
+templ settingsTabs(active string) {
+	@ui.Tabs([]ui.Tab{
+		{Label: "Export", Href: "/settings/export", Active: active == "export"},
+		{Label: "Import", Href: "/settings/import", Active: active == "import"},
+	})
+}
+
+templ exportPage(p ui.Page) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Export and import", "Take your data with you, or bring it in from elsewhere.")
+		@settingsTabs("export")
+		@ui.Card("max-w-2xl space-y-4") {
+			<h2 class="font-semibold">Export your data</h2>
+			<p class="text-sm text-muted">
+				Download a JSON file (format <code>openshelf.export.v1</code>) with your library entries, plays, progress,
+				reviews, lists, and journal. Each referenced item is included with its title, kind, year, and external IDs,
+				so the file makes sense on its own and can be imported into any OpenShelf instance.
+			</p>
+			@ui.LinkButton("primary", "/settings/export.json") {
+				@ui.Icon("down", "h-4 w-4")
+				Download export
+			}
+		}
+	}
+}
+
+templ importPage(p ui.Page, f *form.Form, jobs []db.ExchangeListJobsRow) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Export and import", "Take your data with you, or bring it in from elsewhere.")
+		@settingsTabs("import")
+		<div class="grid gap-6 lg:grid-cols-2">
+			@ui.Card("space-y-4") {
+				<h2 class="font-semibold">Import a file</h2>
+				<p class="text-sm text-muted">
+					Upload an OpenShelf JSON export or a CSV file (up to 10 MB). Imported records are private.
+					Importing the same file again won't create duplicates.
+				</p>
+				<form method="post" action="/settings/import" enctype="multipart/form-data" class="space-y-4">
+					@ui.FormErrors(f.Errors)
+					@ui.Field("file", "File", "", f.Error("file"), templ.Attributes{"type": "file", "accept": ".csv,.json,text/csv,application/json", "required": true})
+					@ui.Checkbox("preview", "Preview before importing", f.Values.Get("preview") != "" || len(f.Values) == 0)
+					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+						Upload
+					}
+				</form>
+			}
+			@ui.Card("space-y-3") {
+				<h2 class="font-semibold">CSV columns</h2>
+				<p class="text-sm text-muted">The first row must be a header. Only <code>kind</code> and <code>title</code> are required; column order doesn't matter.</p>
+				<pre class="overflow-x-auto rounded-md bg-surface-2 p-3 text-xs">{ strings.Join(csvColumns, ",") }</pre>
+				<ul class="list-disc space-y-1 pl-5 text-sm text-muted">
+					<li><code>kind</code>: game, book, film, or show</li>
+					<li><code>ownership</code>: owned, borrowed, or not_owned; <code>backlog</code>: true or false</li>
+					<li><code>status</code>: in_progress, finished, or abandoned; dates are YYYY-MM-DD</li>
+					<li><code>rating_100</code>: 0–100; <code>tags</code>: separated by semicolons</li>
+				</ul>
+			}
+		</div>
+		if len(jobs) > 0 {
+			<h2 class="mb-3 mt-8 font-semibold">Recent imports</h2>
+			@ui.Table() {
+				<thead>
+					<tr><th>File</th><th>Status</th><th>Created</th><th>Matched</th><th>Skipped</th><th>Errors</th></tr>
+				</thead>
+				<tbody>
+					for _, j := range jobs {
+						<tr>
+							<td><a class="hover:text-accent" href={ templ.SafeURL(jobURL(j.PublicID.String())) }>{ fileLabel(j.Filename, j.Format) }</a></td>
+							<td>
+								@ui.Badge(statusLabel(j.Status))
+							</td>
+							<td>{ itoa(j.CreatedCount) }</td>
+							<td>{ itoa(j.MatchedCount) }</td>
+							<td>{ itoa(j.SkippedCount) }</td>
+							<td>{ itoa(j.ErrorCount) }</td>
+						</tr>
+					}
+				</tbody>
+			}
+		}
+	}
+}
+
+func fileLabel(name, format string) string {
+	if name == "" {
+		return strings.ToUpper(format) + " import"
+	}
+	return name
+}
+
+templ jobPage(p ui.Page, job db.ExchangeGetJobRow, errs []RowError) {
+	@ui.Layout(p) {
+		@ui.PageHeader(fileLabel(job.Filename, job.Format), "Import · "+strings.ToUpper(job.Format)) {
+			@ui.LinkButton("secondary", "/settings/import") {
+				All imports
+			}
+		}
+		@jobStatus(job, errs)
+	}
+}
+
+templ jobStatus(job db.ExchangeGetJobRow, errs []RowError) {
+	<div
+		id="import-status"
+		class="max-w-3xl space-y-6"
+		if pending(job.Status) {
+			hx-get={ jobURL(job.PublicID.String()) }
+			hx-trigger="every 2s"
+			hx-swap="outerHTML"
+		}
+	>
+		@ui.Card("space-y-4") {
+			<div class="flex items-center gap-3">
+				<h2 class="font-semibold">
+					if job.Status == StatusPreviewed {
+						Preview
+					} else {
+						Result
+					}
+				</h2>
+				@ui.Badge(statusLabel(job.Status))
+			</div>
+			switch job.Status {
+				case StatusPreviewing:
+					<p class="text-sm text-muted">Checking your file. Nothing has been imported yet. <a class="text-accent" href={ templ.SafeURL(jobURL(job.PublicID.String())) }>Refresh</a></p>
+				case StatusQueued:
+					<p class="text-sm text-muted">Importing… <a class="text-accent" href={ templ.SafeURL(jobURL(job.PublicID.String())) }>Refresh</a></p>
+				case StatusFailed:
+					<p role="alert" class="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+						if job.Error != nil {
+							{ *job.Error }
+						} else {
+							The import failed.
+						}
+					</p>
+				default:
+					<dl class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+						@stat("Create", "New catalog item", job.CreatedCount)
+						@stat("Match", "Existing item", job.MatchedCount)
+						@stat("Skip", "Already imported", job.SkippedCount)
+						@stat("Errors", "Rows not imported", int32(len(errs)))
+					</dl>
+					if job.Status == StatusPreviewed {
+						<p class="text-sm text-muted">This is a dry run; nothing has been imported yet.</p>
+						<form method="post" action={ templ.SafeURL(jobURL(job.PublicID.String()) + "/confirm") }>
+							@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+								Import now
+							}
+						</form>
+					}
+			}
+		}
+		if len(errs) > 0 {
+			@ui.Card("space-y-3") {
+				<h2 class="font-semibold">Problems</h2>
+				<ul class="space-y-1 text-sm">
+					for _, e := range errs {
+						<li><span class="font-medium">{ e.Where() }:</span> { e.Message }</li>
+					}
+				</ul>
+			}
+		}
+	</div>
+}
+
+templ stat(label, hint string, n int32) {
+	<div class="rounded-md bg-surface-2 p-3">
+		<dt class="text-xs text-muted">{ label }</dt>
+		<dd class="text-2xl font-semibold">{ itoa(n) }</dd>
+		<dd class="text-xs text-muted">{ hint }</dd>
+	</div>
+}
