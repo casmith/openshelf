@@ -3,18 +3,42 @@ package server
 import (
 	"net/http"
 
-	"github.com/casmith/openshelf/internal/auth"
+	"github.com/casmith/openshelf/internal/accounts"
+	"github.com/casmith/openshelf/internal/catalog"
+	"github.com/casmith/openshelf/internal/dashboard"
 	"github.com/casmith/openshelf/internal/deps"
+	"github.com/casmith/openshelf/internal/discover"
+	"github.com/casmith/openshelf/internal/exchange"
+	"github.com/casmith/openshelf/internal/experiences"
+	"github.com/casmith/openshelf/internal/images"
+	"github.com/casmith/openshelf/internal/itempage"
+	"github.com/casmith/openshelf/internal/journal"
+	"github.com/casmith/openshelf/internal/library"
+	"github.com/casmith/openshelf/internal/lists"
 	"github.com/casmith/openshelf/internal/login"
+	"github.com/casmith/openshelf/internal/pwa"
+	"github.com/casmith/openshelf/internal/reviews"
+	"github.com/casmith/openshelf/internal/stats"
 	"github.com/casmith/openshelf/internal/web"
 )
 
 func routes(mux *http.ServeMux, d *deps.Deps) {
 	login.Register(mux, d)
+	itempage.Register(mux, d)
+	catalog.Register(mux, d)
+	library.Register(mux, d)
+	experiences.Register(mux, d)
+	reviews.Register(mux, d)
+	lists.Register(mux, d)
+	dashboard.Register(mux, d)
+	journal.Register(mux, d)
+	stats.Register(mux, d)
+	accounts.Register(mux, d)
+	exchange.Register(mux, d)
+	discover.Register(mux, d)
+	images.Register(mux, d)
+	pwa.Register(mux, d)
 
-	mux.Handle("GET /{$}", auth.RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		web.Render(w, r, http.StatusOK, home(web.PageFor(r, d, "Home", "home")))
-	})))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		web.NotFound(w, r, d)
 	})

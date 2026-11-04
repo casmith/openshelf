@@ -7,7 +7,7 @@ DEV_DB_URL ?= postgres://openshelf:openshelf@localhost:5433/openshelf?sslmode=di
 
 dev: db-up
 	@trap 'kill 0' EXIT; \
-	tailwindcss -i internal/web/styles/app.css -o internal/web/static/app.css --watch=always & \
+	tailwindcss -i internal/web/styles/app.css -o internal/web/static/css/app.css --watch=always & \
 	go tool templ generate --watch --cmd "go run ./cmd/openshelf serve" & \
 	wait
 
@@ -20,10 +20,10 @@ templ:
 	go tool templ generate
 
 css: templ
-	tailwindcss -i internal/web/styles/app.css -o internal/web/static/app.css --minify 2>/dev/null
+	tailwindcss -i internal/web/styles/app.css -o internal/web/static/css/app.css --minify 2>/dev/null
 
 check: generate
-	@git add -N . && git diff --exit-code --stat -- '*_templ.go' 'internal/db/*.go' 'internal/web/static/app.css' || (echo "generated files differ from the index; run 'make generate' and stage them" && exit 1)
+	@git add -N . && git diff --exit-code --stat -- '*_templ.go' 'internal/db/*.go' || (echo "generated files differ from the index; run 'make generate' and stage them" && exit 1)
 	go vet ./...
 	golangci-lint run ./...
 	$(MAKE) test

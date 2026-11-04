@@ -31,7 +31,7 @@ internal/migrations/    goose SQL migrations, embedded
 internal/web/           Render/Redirect/Error/Flash/PageFor helpers
 internal/web/ui/        layout and shared templ components
 internal/web/form/      form parsing and validation
-internal/web/static/    embedded assets; app.css is generated
+internal/web/static/    embedded assets; css/app.css is built by make css (gitignored)
 internal/testutil/      NewDB, NewServer, LoginAs, CreateUser, CountQueries
 ```
 
@@ -44,7 +44,7 @@ internal/testutil/      NewDB, NewServer, LoginAs, CreateUser, CountQueries
 - **SQL:** queries live in `internal/db/queries/<package>.sql`, and query names start with the package name (`LibraryListEntries`). Always filter user-owned rows by the viewer **in SQL** (ADR 0004). Use `d.WithTx` for multi-statement writes.
 - **Migrations:** forward-only goose files `NNNNN_name.sql` with `-- +goose Up`. Use only your task's number range (docs/plan.md). Never edit a merged migration.
 - **Jobs:** River workers are registered in `internal/app/workers.go` via each package's `Workers(...)`. Enqueue inside the same transaction as the data change when possible (`d.River.InsertTx`).
-- **Generated files** (`internal/db/*.go`, `*_templ.go`, `internal/web/static/app.css`) are committed. Never edit or hand-merge them; rerun `make generate`.
+- **Generated files** (`internal/db/*.go`, `*_templ.go`) are committed. Never edit or hand-merge them; rerun `make generate`. `internal/web/static/css/app.css` is built, not committed; run `make css` (or `make generate`) after a fresh clone.
 - **Styling:** Tailwind utility classes with theme tokens (`bg-surface`, `text-muted`, `border-line`, `bg-accent`). Reuse `internal/web/ui` components rather than restyling.
 - **Dependencies:** no CGO, no JS build step, no new runtime services. Justify any new Go module in your report.
 - **Code style:** keep comments minimal. Comment only non-obvious intent, never restate the code.

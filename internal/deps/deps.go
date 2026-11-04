@@ -12,6 +12,7 @@ import (
 
 	"github.com/casmith/openshelf/internal/config"
 	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/providers"
 )
 
 // Deps is the shared dependency bundle passed to every feature package.
@@ -23,6 +24,8 @@ type Deps struct {
 	Sessions *scs.SessionManager
 	Log      *slog.Logger
 	Now      func() time.Time
+
+	Providers *providers.Registry
 }
 
 // WithTx runs fn in a transaction, committing if it returns nil.
