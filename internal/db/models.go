@@ -952,6 +952,24 @@ type Image struct {
 	CreatedAt   time.Time
 }
 
+type ImportJob struct {
+	ID           int64
+	PublicID     uuid.UUID
+	UserID       int64
+	Format       string
+	Filename     string
+	Content      []byte
+	Status       string
+	CreatedCount int32
+	MatchedCount int32
+	SkippedCount int32
+	RowErrors    []byte
+	Error        *string
+	FinishedAt   *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 type LibraryEntry struct {
 	ID              int64
 	PublicID        uuid.UUID
