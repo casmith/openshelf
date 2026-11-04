@@ -1,0 +1,278 @@
+package lists
+
+import (
+	"strconv"
+
+	"github.com/google/uuid"
+
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/images"
+	"github.com/casmith/openshelf/internal/web/form"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+const (
+	smallBtn = "inline-flex h-8 min-w-8 items-center justify-center rounded-md border border-line bg-surface px-2 text-xs text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-40 disabled:hover:bg-surface"
+	menuItem = "block w-full rounded px-3 py-2 text-left text-sm hover:bg-surface-2"
+)
+
+func countLabel(n int64) string {
+	if n == 1 {
+		return "1 item"
+	}
+	return strconv.FormatInt(n, 10) + " items"
+}
+
+func itemOpURL(list, item uuid.UUID, op string) string {
+	u := listURL(list) + "/items/" + item.String()
+	if op != "" {
+		u += "/" + op
+	}
+	return u
+}
+
+var visibilityOptions = []ui.Option{
+	{Value: string(db.VisibilityPrivate), Label: "Only me"},
+	{Value: string(db.VisibilityInstance), Label: "Everyone on this server"},
+	{Value: string(db.VisibilityPublic), Label: "Public"},
+}
+
+templ indexPage(p ui.Page, shared bool, cards []listCard) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Lists", "Mixed-media collections, ranked or not.") {
+			@ui.LinkButton("primary", "/lists/new") {
+				@ui.Icon("plus", "h-4 w-4")
+				New list
+			}
+		}
+		@ui.Tabs([]ui.Tab{
+			{Label: "Your lists", Href: "/lists", Active: !shared},
+			{Label: "Shared with you", Href: "/lists?tab=shared", Active: shared},
+		})
+		if len(cards) == 0 {
+			if shared {
+				@ui.EmptyState("Nothing shared yet", "Lists other people share with this server appear here.")
+			} else {
+				@ui.EmptyState("No lists yet", "Group games, books, movies, and shows into a list.") {
+					@ui.LinkButton("primary", "/lists/new") {
+						New list
+					}
+				}
+			}
+		} else {
+			<ul class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+				for _, c := range cards {
+					@listCardView(c)
+				}
+			</ul>
+		}
+	}
+}
+
+templ listCardView(c listCard) {
+	<li>
+		<a href={ templ.SafeURL(listURL(c.PublicID)) } class="group block rounded-lg border border-line bg-surface p-3 hover:border-accent">
+			<div class="grid aspect-square grid-cols-2 grid-rows-2 gap-1 overflow-hidden rounded-md">
+				for i := range 4 {
+					if i < len(c.Covers) {
+						<img src={ c.Covers[i] } alt="" loading="lazy" class="h-full w-full object-cover"/>
+					} else {
+						<div class="bg-surface-2"></div>
+					}
+				}
+			</div>
+			<p class="mt-2 truncate font-medium group-hover:text-accent">{ c.Name }</p>
+			<p class="truncate text-xs text-muted">
+				{ countLabel(c.Count) }
+				if c.Owner != "" {
+					· by { c.Owner }
+				} else {
+					· { visibilityLabel(c.Visibility) }
+				}
+			</p>
+		</a>
+	</li>
+}
+
+templ listFields(f *form.Form) {
+	@ui.FormErrors(f.Errors)
+	@ui.Field("name", "Name", f.Get("name"), f.Error("name"), templ.Attributes{"required": true, "maxlength": maxNameLen})
+	@ui.Textarea("description", "Description", f.Values.Get("description"), f.Error("description"), templ.Attributes{"maxlength": maxDescriptionLen})
+	@ui.Checkbox("ranked", "Ranked (show numbers and keep order)", f.Bool("ranked"))
+	@ui.Select("visibility", "Who can see it", f.Get("visibility"), f.Error("visibility"), visibilityOptions, nil)
+}
+
+templ newPage(p ui.Page, f *form.Form) {
+	@ui.Layout(p) {
+		@ui.PageHeader("New list", "")
+		@ui.Card("max-w-xl") {
+			<form method="post" action="/lists" class="space-y-4">
+				if f.Get("item") != "" {
+					<input type="hidden" name="item" value={ f.Get("item") }/>
+					<p class="text-sm text-muted">The item you came from will be added to the new list.</p>
+				}
+				@listFields(f)
+				<div class="flex gap-2">
+					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+						Create list
+					}
+					@ui.LinkButton("ghost", "/lists") {
+						Cancel
+					}
+				</div>
+			</form>
+		}
+	}
+}
+
+templ editPage(p ui.Page, l db.List, f *form.Form) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Edit list", l.Name)
+		@ui.Card("max-w-xl") {
+			<form method="post" action={ templ.SafeURL(listURL(l.PublicID) + "/edit") } class="space-y-4">
+				@listFields(f)
+				<div class="flex gap-2">
+					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+						Save
+					}
+					@ui.LinkButton("ghost", listURL(l.PublicID)) {
+						Cancel
+					}
+				</div>
+			</form>
+		}
+		@ui.Card("mt-6 max-w-xl") {
+			<h2 class="font-semibold">Delete list</h2>
+			<p class="mt-1 text-sm text-muted">The items stay in your library; only the list goes away.</p>
+			<form method="post" action={ templ.SafeURL(listURL(l.PublicID) + "/delete") } class="mt-4" hx-confirm="Delete this list?">
+				@ui.Button("danger", templ.Attributes{"type": "submit"}) {
+					@ui.Icon("trash", "h-4 w-4")
+					Delete list
+				}
+			</form>
+		}
+	}
+}
+
+templ showPage(p ui.Page, d listData) {
+	@ui.Layout(p) {
+		@ui.PageHeader(d.List.Name, "by "+d.List.OwnerDisplayName+" · "+countLabel(int64(len(d.Items)))+" · "+visibilityLabel(d.List.Visibility)) {
+			if d.Owner {
+				@ui.LinkButton("secondary", listURL(d.List.PublicID)+"/edit") {
+					@ui.Icon("edit", "h-4 w-4")
+					Edit
+				}
+			}
+		}
+		if d.List.Description != nil {
+			<p class="-mt-2 mb-6 max-w-prose whitespace-pre-line text-sm leading-relaxed">{ *d.List.Description }</p>
+		}
+		@itemsSection(d.List.PublicID, d.List.Ranked, d.Owner, d.Items)
+	}
+}
+
+templ itemsSection(list uuid.UUID, ranked, owner bool, items []db.ListsItemsRow) {
+	<div id="list-items">
+		if len(items) == 0 {
+			@ui.EmptyState("This list is empty", "Use “Add to list” on any item page.")
+		} else {
+			<ol class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+				for i, it := range items {
+					<li>
+						<a href={ templ.SafeURL(itemURL(it.MediaPublicID)) } class="group block">
+							<div class="relative aspect-[2/3] overflow-hidden rounded-md border border-line bg-surface-2">
+								<img src={ images.CoverURL(it.CoverImageID, it.Kind, images.Card) } alt="" loading="lazy" class="h-full w-full object-cover transition group-hover:scale-[1.02]"/>
+								if ranked {
+									<span class="absolute left-2 top-2 rounded-md bg-accent px-2 py-0.5 text-sm font-semibold text-accent-fg" data-rank>{ strconv.Itoa(i + 1) }</span>
+								}
+							</div>
+							<p class="mt-2 truncate text-sm font-medium group-hover:text-accent">{ it.Title }</p>
+							<p class="flex items-center gap-1.5 text-xs text-muted">
+								@ui.KindIcon(string(it.Kind), "h-3.5 w-3.5")
+								if it.ReleaseYear != nil {
+									<span>{ strconv.Itoa(int(*it.ReleaseYear)) }</span>
+								}
+							</p>
+						</a>
+						if owner {
+							<div class="mt-2 flex gap-1">
+								@moveButton(list, it, "top", i == 0) {
+									Top
+								}
+								@moveButton(list, it, "up", i == 0) {
+									@ui.Icon("up", "h-4 w-4")
+								}
+								@moveButton(list, it, "down", i == len(items)-1) {
+									@ui.Icon("down", "h-4 w-4")
+								}
+								<form
+									method="post"
+									action={ templ.SafeURL(itemOpURL(list, it.MediaPublicID, "delete")) }
+									hx-delete={ itemOpURL(list, it.MediaPublicID, "") }
+									hx-target="#list-items"
+									hx-swap="outerHTML"
+									class="ml-auto"
+								>
+									<button type="submit" class={ smallBtn } aria-label={ "Remove " + it.Title }>
+										@ui.Icon("trash", "h-4 w-4")
+									</button>
+								</form>
+							</div>
+						}
+					</li>
+				}
+			</ol>
+		}
+	</div>
+}
+
+templ moveButton(list uuid.UUID, it db.ListsItemsRow, to string, disabled bool) {
+	<form
+		method="post"
+		action={ templ.SafeURL(itemOpURL(list, it.MediaPublicID, "move")) }
+		hx-post={ itemOpURL(list, it.MediaPublicID, "move") }
+		hx-target="#list-items"
+		hx-swap="outerHTML"
+	>
+		<input type="hidden" name="to" value={ to }/>
+		<button type="submit" class={ smallBtn } aria-label={ "Move " + it.Title + " " + to } disabled?={ disabled }>
+			{ children... }
+		</button>
+	</form>
+}
+
+templ panel(item db.MediaItem, in, out []db.ListsForOwnerWithItemRow) {
+	@ui.Card("") {
+		<h2 class="flex items-center gap-2 font-semibold">
+			@ui.Icon("list", "h-5 w-5 text-muted")
+			Lists
+		</h2>
+		if len(in) > 0 {
+			<ul class="mt-3 space-y-1 text-sm">
+				for _, l := range in {
+					<li>
+						<a href={ templ.SafeURL(listURL(l.PublicID)) } class="hover:text-accent">{ l.Name }</a>
+					</li>
+				}
+			</ul>
+		} else {
+			<p class="mt-3 text-sm text-muted">Not on any of your lists.</p>
+		}
+		<details class="relative mt-4">
+			<summary class="inline-flex cursor-pointer list-none items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-medium hover:bg-surface-2">
+				@ui.Icon("plus", "h-4 w-4")
+				Add to list
+			</summary>
+			<div class="absolute z-10 mt-2 w-64 rounded-md border border-line bg-surface p-1 shadow-lg">
+				for _, l := range out {
+					<form method="post" action={ templ.SafeURL(listURL(l.PublicID) + "/items") }>
+						<input type="hidden" name="item" value={ item.PublicID.String() }/>
+						<input type="hidden" name="next" value={ itemURL(item.PublicID) }/>
+						<button type="submit" class={ menuItem }>{ l.Name }</button>
+					</form>
+				}
+				<a href={ templ.SafeURL("/lists/new?item=" + item.PublicID.String()) } class={ menuItem + " text-accent" }>New list…</a>
+			</div>
+		</details>
+	}
+}
