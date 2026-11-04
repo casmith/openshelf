@@ -12,6 +12,654 @@ import (
 	"github.com/google/uuid"
 )
 
+type ActivityVerb string
+
+const (
+	ActivityVerbAdded      ActivityVerb = "added"
+	ActivityVerbStarted    ActivityVerb = "started"
+	ActivityVerbPaused     ActivityVerb = "paused"
+	ActivityVerbResumed    ActivityVerb = "resumed"
+	ActivityVerbProgressed ActivityVerb = "progressed"
+	ActivityVerbFinished   ActivityVerb = "finished"
+	ActivityVerbAbandoned  ActivityVerb = "abandoned"
+	ActivityVerbRated      ActivityVerb = "rated"
+	ActivityVerbReviewed   ActivityVerb = "reviewed"
+	ActivityVerbListed     ActivityVerb = "listed"
+)
+
+func (e *ActivityVerb) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ActivityVerb(s)
+	case string:
+		*e = ActivityVerb(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ActivityVerb: %T", src)
+	}
+	return nil
+}
+
+type NullActivityVerb struct {
+	ActivityVerb ActivityVerb
+	Valid        bool // Valid is true if ActivityVerb is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullActivityVerb) Scan(value interface{}) error {
+	if value == nil {
+		ns.ActivityVerb, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ActivityVerb.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullActivityVerb) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ActivityVerb), nil
+}
+
+func (e ActivityVerb) Valid() bool {
+	switch e {
+	case ActivityVerbAdded,
+		ActivityVerbStarted,
+		ActivityVerbPaused,
+		ActivityVerbResumed,
+		ActivityVerbProgressed,
+		ActivityVerbFinished,
+		ActivityVerbAbandoned,
+		ActivityVerbRated,
+		ActivityVerbReviewed,
+		ActivityVerbListed:
+		return true
+	}
+	return false
+}
+
+func AllActivityVerbValues() []ActivityVerb {
+	return []ActivityVerb{
+		ActivityVerbAdded,
+		ActivityVerbStarted,
+		ActivityVerbPaused,
+		ActivityVerbResumed,
+		ActivityVerbProgressed,
+		ActivityVerbFinished,
+		ActivityVerbAbandoned,
+		ActivityVerbRated,
+		ActivityVerbReviewed,
+		ActivityVerbListed,
+	}
+}
+
+type CreditRole string
+
+const (
+	CreditRoleAuthor      CreditRole = "author"
+	CreditRoleNarrator    CreditRole = "narrator"
+	CreditRoleTranslator  CreditRole = "translator"
+	CreditRoleIllustrator CreditRole = "illustrator"
+	CreditRoleDirector    CreditRole = "director"
+	CreditRoleWriter      CreditRole = "writer"
+	CreditRoleCreator     CreditRole = "creator"
+	CreditRoleActor       CreditRole = "actor"
+	CreditRoleDeveloper   CreditRole = "developer"
+	CreditRolePublisher   CreditRole = "publisher"
+	CreditRoleComposer    CreditRole = "composer"
+	CreditRoleOther       CreditRole = "other"
+)
+
+func (e *CreditRole) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CreditRole(s)
+	case string:
+		*e = CreditRole(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CreditRole: %T", src)
+	}
+	return nil
+}
+
+type NullCreditRole struct {
+	CreditRole CreditRole
+	Valid      bool // Valid is true if CreditRole is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCreditRole) Scan(value interface{}) error {
+	if value == nil {
+		ns.CreditRole, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CreditRole.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCreditRole) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CreditRole), nil
+}
+
+func (e CreditRole) Valid() bool {
+	switch e {
+	case CreditRoleAuthor,
+		CreditRoleNarrator,
+		CreditRoleTranslator,
+		CreditRoleIllustrator,
+		CreditRoleDirector,
+		CreditRoleWriter,
+		CreditRoleCreator,
+		CreditRoleActor,
+		CreditRoleDeveloper,
+		CreditRolePublisher,
+		CreditRoleComposer,
+		CreditRoleOther:
+		return true
+	}
+	return false
+}
+
+func AllCreditRoleValues() []CreditRole {
+	return []CreditRole{
+		CreditRoleAuthor,
+		CreditRoleNarrator,
+		CreditRoleTranslator,
+		CreditRoleIllustrator,
+		CreditRoleDirector,
+		CreditRoleWriter,
+		CreditRoleCreator,
+		CreditRoleActor,
+		CreditRoleDeveloper,
+		CreditRolePublisher,
+		CreditRoleComposer,
+		CreditRoleOther,
+	}
+}
+
+type EditionFormat string
+
+const (
+	EditionFormatHardcover EditionFormat = "hardcover"
+	EditionFormatPaperback EditionFormat = "paperback"
+	EditionFormatEbook     EditionFormat = "ebook"
+	EditionFormatAudiobook EditionFormat = "audiobook"
+	EditionFormatPhysical  EditionFormat = "physical"
+	EditionFormatDigital   EditionFormat = "digital"
+	EditionFormatBluray    EditionFormat = "bluray"
+	EditionFormatUhdBluray EditionFormat = "uhd_bluray"
+	EditionFormatDvd       EditionFormat = "dvd"
+	EditionFormatStreaming EditionFormat = "streaming"
+	EditionFormatOther     EditionFormat = "other"
+)
+
+func (e *EditionFormat) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EditionFormat(s)
+	case string:
+		*e = EditionFormat(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EditionFormat: %T", src)
+	}
+	return nil
+}
+
+type NullEditionFormat struct {
+	EditionFormat EditionFormat
+	Valid         bool // Valid is true if EditionFormat is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEditionFormat) Scan(value interface{}) error {
+	if value == nil {
+		ns.EditionFormat, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EditionFormat.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEditionFormat) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EditionFormat), nil
+}
+
+func (e EditionFormat) Valid() bool {
+	switch e {
+	case EditionFormatHardcover,
+		EditionFormatPaperback,
+		EditionFormatEbook,
+		EditionFormatAudiobook,
+		EditionFormatPhysical,
+		EditionFormatDigital,
+		EditionFormatBluray,
+		EditionFormatUhdBluray,
+		EditionFormatDvd,
+		EditionFormatStreaming,
+		EditionFormatOther:
+		return true
+	}
+	return false
+}
+
+func AllEditionFormatValues() []EditionFormat {
+	return []EditionFormat{
+		EditionFormatHardcover,
+		EditionFormatPaperback,
+		EditionFormatEbook,
+		EditionFormatAudiobook,
+		EditionFormatPhysical,
+		EditionFormatDigital,
+		EditionFormatBluray,
+		EditionFormatUhdBluray,
+		EditionFormatDvd,
+		EditionFormatStreaming,
+		EditionFormatOther,
+	}
+}
+
+type ExperienceState string
+
+const (
+	ExperienceStateActive    ExperienceState = "active"
+	ExperienceStatePaused    ExperienceState = "paused"
+	ExperienceStateFinished  ExperienceState = "finished"
+	ExperienceStateAbandoned ExperienceState = "abandoned"
+)
+
+func (e *ExperienceState) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ExperienceState(s)
+	case string:
+		*e = ExperienceState(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ExperienceState: %T", src)
+	}
+	return nil
+}
+
+type NullExperienceState struct {
+	ExperienceState ExperienceState
+	Valid           bool // Valid is true if ExperienceState is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullExperienceState) Scan(value interface{}) error {
+	if value == nil {
+		ns.ExperienceState, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ExperienceState.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullExperienceState) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ExperienceState), nil
+}
+
+func (e ExperienceState) Valid() bool {
+	switch e {
+	case ExperienceStateActive,
+		ExperienceStatePaused,
+		ExperienceStateFinished,
+		ExperienceStateAbandoned:
+		return true
+	}
+	return false
+}
+
+func AllExperienceStateValues() []ExperienceState {
+	return []ExperienceState{
+		ExperienceStateActive,
+		ExperienceStatePaused,
+		ExperienceStateFinished,
+		ExperienceStateAbandoned,
+	}
+}
+
+type ImageStatus string
+
+const (
+	ImageStatusPending ImageStatus = "pending"
+	ImageStatusReady   ImageStatus = "ready"
+	ImageStatusFailed  ImageStatus = "failed"
+)
+
+func (e *ImageStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ImageStatus(s)
+	case string:
+		*e = ImageStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ImageStatus: %T", src)
+	}
+	return nil
+}
+
+type NullImageStatus struct {
+	ImageStatus ImageStatus
+	Valid       bool // Valid is true if ImageStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullImageStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ImageStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ImageStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullImageStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ImageStatus), nil
+}
+
+func (e ImageStatus) Valid() bool {
+	switch e {
+	case ImageStatusPending,
+		ImageStatusReady,
+		ImageStatusFailed:
+		return true
+	}
+	return false
+}
+
+func AllImageStatusValues() []ImageStatus {
+	return []ImageStatus{
+		ImageStatusPending,
+		ImageStatusReady,
+		ImageStatusFailed,
+	}
+}
+
+type MediaKind string
+
+const (
+	MediaKindGame MediaKind = "game"
+	MediaKindBook MediaKind = "book"
+	MediaKindFilm MediaKind = "film"
+	MediaKindShow MediaKind = "show"
+)
+
+func (e *MediaKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MediaKind(s)
+	case string:
+		*e = MediaKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MediaKind: %T", src)
+	}
+	return nil
+}
+
+type NullMediaKind struct {
+	MediaKind MediaKind
+	Valid     bool // Valid is true if MediaKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMediaKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.MediaKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MediaKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMediaKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MediaKind), nil
+}
+
+func (e MediaKind) Valid() bool {
+	switch e {
+	case MediaKindGame,
+		MediaKindBook,
+		MediaKindFilm,
+		MediaKindShow:
+		return true
+	}
+	return false
+}
+
+func AllMediaKindValues() []MediaKind {
+	return []MediaKind{
+		MediaKindGame,
+		MediaKindBook,
+		MediaKindFilm,
+		MediaKindShow,
+	}
+}
+
+type Ownership string
+
+const (
+	OwnershipOwned    Ownership = "owned"
+	OwnershipBorrowed Ownership = "borrowed"
+	OwnershipNotOwned Ownership = "not_owned"
+)
+
+func (e *Ownership) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = Ownership(s)
+	case string:
+		*e = Ownership(s)
+	default:
+		return fmt.Errorf("unsupported scan type for Ownership: %T", src)
+	}
+	return nil
+}
+
+type NullOwnership struct {
+	Ownership Ownership
+	Valid     bool // Valid is true if Ownership is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOwnership) Scan(value interface{}) error {
+	if value == nil {
+		ns.Ownership, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.Ownership.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOwnership) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.Ownership), nil
+}
+
+func (e Ownership) Valid() bool {
+	switch e {
+	case OwnershipOwned,
+		OwnershipBorrowed,
+		OwnershipNotOwned:
+		return true
+	}
+	return false
+}
+
+func AllOwnershipValues() []Ownership {
+	return []Ownership{
+		OwnershipOwned,
+		OwnershipBorrowed,
+		OwnershipNotOwned,
+	}
+}
+
+type PlatformKind string
+
+const (
+	PlatformKindConsole  PlatformKind = "console"
+	PlatformKindHandheld PlatformKind = "handheld"
+	PlatformKindComputer PlatformKind = "computer"
+	PlatformKindArcade   PlatformKind = "arcade"
+	PlatformKindMobile   PlatformKind = "mobile"
+	PlatformKindVr       PlatformKind = "vr"
+	PlatformKindOther    PlatformKind = "other"
+)
+
+func (e *PlatformKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PlatformKind(s)
+	case string:
+		*e = PlatformKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PlatformKind: %T", src)
+	}
+	return nil
+}
+
+type NullPlatformKind struct {
+	PlatformKind PlatformKind
+	Valid        bool // Valid is true if PlatformKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPlatformKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.PlatformKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PlatformKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPlatformKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PlatformKind), nil
+}
+
+func (e PlatformKind) Valid() bool {
+	switch e {
+	case PlatformKindConsole,
+		PlatformKindHandheld,
+		PlatformKindComputer,
+		PlatformKindArcade,
+		PlatformKindMobile,
+		PlatformKindVr,
+		PlatformKindOther:
+		return true
+	}
+	return false
+}
+
+func AllPlatformKindValues() []PlatformKind {
+	return []PlatformKind{
+		PlatformKindConsole,
+		PlatformKindHandheld,
+		PlatformKindComputer,
+		PlatformKindArcade,
+		PlatformKindMobile,
+		PlatformKindVr,
+		PlatformKindOther,
+	}
+}
+
+type ProgressUnit string
+
+const (
+	ProgressUnitPercent  ProgressUnit = "percent"
+	ProgressUnitPages    ProgressUnit = "pages"
+	ProgressUnitChapters ProgressUnit = "chapters"
+	ProgressUnitMinutes  ProgressUnit = "minutes"
+	ProgressUnitHours    ProgressUnit = "hours"
+	ProgressUnitEpisodes ProgressUnit = "episodes"
+)
+
+func (e *ProgressUnit) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ProgressUnit(s)
+	case string:
+		*e = ProgressUnit(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ProgressUnit: %T", src)
+	}
+	return nil
+}
+
+type NullProgressUnit struct {
+	ProgressUnit ProgressUnit
+	Valid        bool // Valid is true if ProgressUnit is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullProgressUnit) Scan(value interface{}) error {
+	if value == nil {
+		ns.ProgressUnit, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ProgressUnit.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullProgressUnit) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ProgressUnit), nil
+}
+
+func (e ProgressUnit) Valid() bool {
+	switch e {
+	case ProgressUnitPercent,
+		ProgressUnitPages,
+		ProgressUnitChapters,
+		ProgressUnitMinutes,
+		ProgressUnitHours,
+		ProgressUnitEpisodes:
+		return true
+	}
+	return false
+}
+
+func AllProgressUnitValues() []ProgressUnit {
+	return []ProgressUnit{
+		ProgressUnitPercent,
+		ProgressUnitPages,
+		ProgressUnitChapters,
+		ProgressUnitMinutes,
+		ProgressUnitHours,
+		ProgressUnitEpisodes,
+	}
+}
+
 type RatingDisplay string
 
 const (
@@ -192,10 +840,225 @@ func AllVisibilityValues() []Visibility {
 	}
 }
 
+type ActivityEvent struct {
+	ID             int64
+	PublicID       uuid.UUID
+	UserID         int64
+	Verb           ActivityVerb
+	MediaItemID    int64
+	LibraryEntryID *int64
+	ExperienceID   *int64
+	ReviewID       *int64
+	ListID         *int64
+	Visibility     Visibility
+	OccurredAt     time.Time
+	CreatedAt      time.Time
+}
+
+type BookDetail struct {
+	MediaItemID    int64
+	SeriesName     *string
+	SeriesPosition *float64
+}
+
+type Creator struct {
+	ID        int64
+	PublicID  uuid.UUID
+	Name      string
+	SortName  string
+	CreatedAt time.Time
+}
+
+type Credit struct {
+	MediaItemID int64
+	CreatorID   int64
+	Role        CreditRole
+	Position    int16
+}
+
+type Edition struct {
+	ID              int64
+	PublicID        uuid.UUID
+	MediaItemID     int64
+	Title           *string
+	Format          *EditionFormat
+	PlatformID      *int64
+	Region          *string
+	Publisher       *string
+	ReleaseDate     *time.Time
+	PageCount       *int32
+	DurationMinutes *int32
+	CoverImageID    *int64
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type Experience struct {
+	ID              int64
+	PublicID        uuid.UUID
+	UserID          int64
+	MediaItemID     int64
+	EditionID       *int64
+	State           ExperienceState
+	StartedOn       *time.Time
+	FinishedOn      *time.Time
+	ProgressUnit    *ProgressUnit
+	ProgressCurrent *float64
+	ProgressTotal   *float64
+	Notes           *string
+	Visibility      Visibility
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type ExternalID struct {
+	ID          int64
+	Provider    string
+	Value       string
+	Url         *string
+	MediaItemID *int64
+	EditionID   *int64
+	PlatformID  *int64
+	CreatorID   *int64
+	LastSeenAt  time.Time
+}
+
+type FilmDetail struct {
+	MediaItemID    int64
+	RuntimeMinutes *int32
+}
+
+type GameDetail struct {
+	MediaItemID int64
+	Franchise   *string
+}
+
+type Image struct {
+	ID          int64
+	SourceUrl   *string
+	Sha256      *string
+	ContentType *string
+	Width       *int32
+	Height      *int32
+	Status      ImageStatus
+	Error       *string
+	FetchedAt   *time.Time
+	CreatedAt   time.Time
+}
+
+type LibraryEntry struct {
+	ID              int64
+	PublicID        uuid.UUID
+	UserID          int64
+	MediaItemID     int64
+	EditionID       *int64
+	OwnershipUser   *Ownership
+	OwnershipSource *Ownership
+	Backlog         bool
+	PlayedUser      *bool
+	PlayedSource    *bool
+	AcquiredOn      *time.Time
+	Tags            []string
+	Notes           *string
+	Visibility      Visibility
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type List struct {
+	ID          int64
+	PublicID    uuid.UUID
+	UserID      int64
+	Name        string
+	Description *string
+	Ranked      bool
+	Visibility  Visibility
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ListItem struct {
+	ID          int64
+	ListID      int64
+	MediaItemID int64
+	Position    int32
+	Note        *string
+	CreatedAt   time.Time
+}
+
+type MediaItem struct {
+	ID                  int64
+	PublicID            uuid.UUID
+	Kind                MediaKind
+	Title               string
+	SortTitle           string
+	OriginalTitle       *string
+	ReleaseDate         *time.Time
+	ReleaseYear         *int16
+	Synopsis            *string
+	Genres              []string
+	CoverImageID        *int64
+	MetadataProvider    *string
+	MetadataRefreshedAt *time.Time
+	LockedFields        []string
+	CreatedByUserID     *int64
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type Platform struct {
+	ID           int64
+	Slug         string
+	Name         string
+	ShortName    *string
+	Manufacturer *string
+	Kind         PlatformKind
+	Family       *string
+	Generation   *int16
+	ReleaseYear  *int16
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type PlatformAlias struct {
+	PlatformID int64
+	Alias      string
+}
+
+type ProgressEvent struct {
+	ID           int64
+	ExperienceID int64
+	OccurredAt   time.Time
+	Value        float64
+	Note         *string
+}
+
+type Review struct {
+	ID               int64
+	PublicID         uuid.UUID
+	UserID           int64
+	MediaItemID      int64
+	ExperienceID     *int64
+	Rating           *int16
+	Body             *string
+	ContainsSpoilers bool
+	Visibility       Visibility
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
 type Session struct {
 	Token  string
 	Data   []byte
 	Expiry time.Time
+}
+
+type ShowDetail struct {
+	MediaItemID  int64
+	Network      *string
+	Status       *string
+	SeasonCount  *int32
+	EpisodeCount *int32
 }
 
 type User struct {

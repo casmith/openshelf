@@ -17,6 +17,7 @@ import (
 	"github.com/casmith/openshelf/internal/auth"
 	"github.com/casmith/openshelf/internal/config"
 	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/seed"
 )
 
 var version = "dev"
@@ -72,7 +73,27 @@ func run(ctx context.Context, cmd string, args []string) error {
 		defer pool.Close()
 		return app.Migrate(ctx, pool, log)
 	case "seed":
-		return errors.New("seed is not implemented yet")
+		if cfg.IsProduction() {
+			return errors.New("seed refuses to run when OPENSHELF_ENV=production")
+		}
+		pool, err := app.OpenPool(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		defer pool.Close()
+		if err := app.Migrate(ctx, pool, log); err != nil {
+			return err
+		}
+		ran, err := seed.Run(ctx, pool, time.Now())
+		if err != nil {
+			return err
+		}
+		if ran {
+			fmt.Printf("seeded demo data; sign in as alice or bob with password %q\n", seed.Password)
+		} else {
+			fmt.Println("demo data already present")
+		}
+		return nil
 	case "user":
 		if len(args) == 0 || args[0] != "create" {
 			return errors.New("usage: openshelf user create --username NAME [--display-name NAME] [--email EMAIL] [--admin] [--password PW]")

@@ -1,0 +1,14 @@
+package itempage
+
+import "github.com/casmith/openshelf/internal/web/ui"
+
+templ page(p ui.Page, header templ.Component, panels []templ.Component) {
+	@ui.Layout(p) {
+		@header
+		<div class="mt-8 grid gap-6 lg:grid-cols-2">
+			for _, panel := range panels {
+				@panel
+			}
+		</div>
+	}
+}

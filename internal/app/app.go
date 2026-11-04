@@ -64,12 +64,13 @@ func New(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts Options) 
 	sm.Cookie.Persist = true
 
 	d := &deps.Deps{
-		Config:   cfg,
-		Pool:     pool,
-		Q:        db.New(pool),
-		Sessions: sm,
-		Log:      log,
-		Now:      time.Now,
+		Config:    cfg,
+		Pool:      pool,
+		Q:         db.New(pool),
+		Sessions:  sm,
+		Log:       log,
+		Now:       time.Now,
+		Providers: newProviders(cfg),
 	}
 
 	workers := river.NewWorkers()
@@ -81,7 +82,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts Options) 
 	}
 	if opts.Workers {
 		rc.Queues = map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 4}}
-		rc.PeriodicJobs = periodicJobs()
+		rc.PeriodicJobs = periodicJobs(d)
 	}
 	client, err := river.NewClient(riverpgxv5.New(pool), rc)
 	if err != nil {
