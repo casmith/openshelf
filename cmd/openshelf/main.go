@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -31,12 +33,16 @@ commands:
   seed                   load demo data (development only)
   user create            create a user account
   version                print the version
+  healthcheck            exit 0 if the local server is ready (for container healthchecks)
 `
 
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "version" {
 		fmt.Println(version)
 		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck())
 	}
 	if len(os.Args) < 2 {
 		fmt.Fprint(os.Stderr, usage)
@@ -195,4 +201,26 @@ func createUser(ctx context.Context, cfg config.Config, args []string) error {
 	}
 	fmt.Printf("created %s user %q\n", u.Role, u.Username)
 	return nil
+}
+
+func healthcheck() int {
+	host, port, err := net.SplitHostPort(os.Getenv("OPENSHELF_LISTEN"))
+	if err != nil {
+		port = "8080"
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	c := http.Client{Timeout: 3 * time.Second}
+	res, err := c.Get("http://" + net.JoinHostPort(host, port) + "/readyz")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		fmt.Fprintln(os.Stderr, "readyz:", res.Status)
+		return 1
+	}
+	return 0
 }
