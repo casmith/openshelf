@@ -8,9 +8,14 @@ import (
 	"github.com/casmith/openshelf/internal/web"
 )
 
-// Register adds this package's routes. Owned by task S06 (docs/plan.md).
 func Register(mux *http.ServeMux, d *deps.Deps) {
 	mux.Handle("GET /{$}", auth.RequireUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		web.Render(w, r, http.StatusOK, home(web.PageFor(r, d, "Home", "home")))
+		viewer, _ := auth.CurrentUser(r.Context())
+		h, err := load(r.Context(), d, viewer)
+		if err != nil {
+			web.Error(w, r, d, err)
+			return
+		}
+		web.Render(w, r, http.StatusOK, home(web.PageFor(r, d, "Home", "home"), h))
 	})))
 }
