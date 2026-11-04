@@ -1,0 +1,358 @@
+package library
+
+import (
+	"net/url"
+
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/images"
+	"github.com/casmith/openshelf/internal/reviews"
+	"github.com/casmith/openshelf/internal/web/form"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+const (
+	compactInput = "block w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+	compactLabel = "mb-1 block text-xs font-medium text-muted"
+)
+
+templ libraryPage(p ui.Page, v libraryView) {
+	@ui.Layout(p) {
+		@ui.PageHeader(p.Title, "") {
+			@viewToggle(v)
+		}
+		@libraryBody(v)
+	}
+}
+
+templ viewToggle(v libraryView) {
+	<div class="inline-flex rounded-md border border-line" role="group" aria-label="View">
+		<a href={ templ.SafeURL(v.viewHref("grid")) } class={ "px-3 py-1.5 text-sm", templ.KV("bg-surface-2 font-medium", v.Filter.View == "grid"), templ.KV("text-muted", v.Filter.View != "grid") } aria-pressed?={ v.Filter.View == "grid" }>Grid</a>
+		<a href={ templ.SafeURL(v.viewHref("table")) } class={ "border-l border-line px-3 py-1.5 text-sm", templ.KV("bg-surface-2 font-medium", v.Filter.View == "table"), templ.KV("text-muted", v.Filter.View != "table") } aria-pressed?={ v.Filter.View == "table" }>Table</a>
+	</div>
+}
+
+templ filterSelect(name, label, value string, opts []ui.Option) {
+	<div>
+		<label for={ "lib-filter-" + name } class={ compactLabel }>{ label }</label>
+		<select id={ "lib-filter-" + name } name={ name } class={ compactInput }>
+			for _, o := range opts {
+				<option value={ o.Value } selected?={ o.Value == value }>{ o.Label }</option>
+			}
+		</select>
+	</div>
+}
+
+templ filterDate(name, label, value string) {
+	<div>
+		<label for={ "lib-filter-" + name } class={ compactLabel }>{ label }</label>
+		<input type="date" id={ "lib-filter-" + name } name={ name } value={ value } class={ compactInput }/>
+	</div>
+}
+
+templ libraryBody(v libraryView) {
+	<div id="library">
+		@ui.Tabs(v.kindTabs())
+		<form
+			method="get"
+			action={ templ.SafeURL(v.Path) }
+			hx-get={ v.Path }
+			hx-trigger="change, submit"
+			hx-target="#library"
+			hx-swap="outerHTML"
+			hx-push-url="true"
+			class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+		>
+			@filterSelect("ownership", "Ownership", ownershipValue(v.Filter.Ownership), filterOwnershipOptions())
+			@filterSelect("status", "Status", v.Filter.Status, statusOptions)
+			if v.Filter.Kind == nil || *v.Filter.Kind == db.MediaKindGame || len(v.Facets.Platforms) > 0 {
+				@filterSelect("platform", "Platform", v.Filter.Platform, facetOptions("Any platform", v.Facets.Platforms, false))
+			}
+			@filterSelect("format", "Format", formatValue(v.Filter.Format), facetOptions("Any format", v.Facets.Formats, true))
+			@filterSelect("genre", "Genre", v.Filter.Genre, facetOptions("Any genre", v.Facets.Genres, false))
+			@filterSelect("tag", "Tag", v.Filter.Tag, facetOptions("Any tag", v.Facets.Tags, false))
+			@filterSelect("rating", "Rating", v.Filter.Rating, ratingOptions(v.Display))
+			@filterDate("added_from", "Added from", dateValue(v.Filter.AddedFrom))
+			@filterDate("added_to", "Added to", dateValue(v.Filter.AddedTo))
+			@filterSelect("sort", "Sort by", v.Filter.Sort, sortOptions)
+			@filterSelect("dir", "Order", v.Filter.Query().Get("dir"), dirOptions)
+			if q := v.Filter.Query(); q.Get("per") != "" {
+				<input type="hidden" name="per" value={ q.Get("per") }/>
+			}
+			<div class="flex items-end gap-2">
+				@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+					Apply
+				}
+				if v.filtered() {
+					<a href={ templ.SafeURL(v.Path) } class="px-2 py-2 text-sm text-muted hover:text-fg">Clear</a>
+				}
+			</div>
+		</form>
+		if len(v.Page.Entries) == 0 {
+			if v.filtered() {
+				@ui.EmptyState("No matches", "Nothing in your library matches these filters.") {
+					@ui.LinkButton("secondary", v.Path) {
+						Clear filters
+					}
+				}
+			} else {
+				@ui.EmptyState("Nothing here yet", "Find something and add it to your library from its page.") {
+					@ui.LinkButton("primary", "/search") {
+						@ui.Icon("search", "h-4 w-4")
+						Search
+					}
+				}
+			}
+		} else if v.Filter.View == "table" {
+			@entryTable(v)
+		} else {
+			@ui.CoverGrid() {
+				for _, e := range v.Page.Entries {
+					@ui.CoverCard(ui.CoverCardProps{
+						Href:     itemURL(e.ItemPublicID),
+						Title:    e.Title,
+						Subtitle: entrySubtitle(e),
+						CoverURL: images.CoverURL(e.CoverImageID, e.Kind, images.Card),
+						Kind:     string(e.Kind),
+						Chip:     statusChip(e),
+					})
+				}
+			}
+		}
+		@ui.Pagination(v.pageHref("before", v.Page.PrevCursor), v.pageHref("after", v.Page.NextCursor))
+	</div>
+}
+
+templ entryTable(v libraryView) {
+	@ui.Table() {
+		<thead>
+			<tr>
+				<th>Title</th>
+				<th>Edition</th>
+				<th>Ownership</th>
+				<th>Status</th>
+				<th>Rating</th>
+				<th>Added</th>
+			</tr>
+		</thead>
+		<tbody>
+			for _, e := range v.Page.Entries {
+				<tr data-entry={ e.PublicID.String() }>
+					<td>
+						<a href={ templ.SafeURL(itemURL(e.ItemPublicID)) } class="flex items-center gap-2 font-medium hover:text-accent">
+							@ui.KindIcon(string(e.Kind), "h-4 w-4 text-muted")
+							{ e.Title }
+						</a>
+					</td>
+					<td class="text-muted">{ entrySubtitle(e) }</td>
+					<td>{ ownershipLabel(e.Ownership) }</td>
+					<td>
+						if c := statusChip(e); c != "" {
+							@ui.Badge(c)
+						}
+					</td>
+					<td>
+						@reviews.RatingDisplay(v.Display, e.Rating)
+					</td>
+					<td class="whitespace-nowrap text-muted">{ e.CreatedAt.Format("2006-01-02") }</td>
+				</tr>
+			}
+		</tbody>
+	}
+}
+
+// Item page panel.
+
+type panelView struct {
+	Item     db.MediaItem
+	Entries  []db.LibraryItemEntriesRow
+	Editions []db.ListEditionsForItemRow
+	Viewer   db.User
+}
+
+func entryEditionLabel(e db.LibraryItemEntriesRow) string {
+	if e.EditionPublicID == nil {
+		return "No specific edition"
+	}
+	return editionLabel(e.EditionTitle, e.PlatformName, e.PlatformShortName, e.EditionFormat, e.EditionRegion)
+}
+
+templ itemPanel(v panelView) {
+	@ui.Card("") {
+		<div id="library-panel">
+			<h2 class="flex items-center gap-2 text-lg font-semibold">
+				@ui.Icon("library", "h-5 w-5 text-muted")
+				Library
+			</h2>
+			if len(v.Entries) == 0 {
+				<p class="mt-2 text-sm text-muted">Not in your library yet.</p>
+			}
+			<ul class="mt-3 space-y-4">
+				for _, e := range v.Entries {
+					@panelEntry(e)
+				}
+			</ul>
+			if len(v.Entries) == 0 || len(v.Editions) > 0 {
+				<details class="mt-4" open?={ len(v.Entries) == 0 }>
+					<summary class="cursor-pointer text-sm font-medium text-accent">
+						if len(v.Entries) == 0 {
+							Add to library
+						} else {
+							Add another edition
+						}
+					</summary>
+					@quickAddForm(v)
+				</details>
+			}
+		</div>
+	}
+}
+
+templ panelEntry(e db.LibraryItemEntriesRow) {
+	<li class="rounded-md border border-line p-3" data-entry={ e.PublicID.String() }>
+		<div class="flex flex-wrap items-center gap-2">
+			<span class="font-medium">{ entryEditionLabel(e) }</span>
+			@ui.Badge(ownershipLabel(e.EffectiveOwnership))
+			if e.Backlog {
+				@ui.Badge("Backlog")
+			}
+			@ui.Badge(visibilityLabel(e.Visibility))
+		</div>
+		if len(e.Tags) > 0 {
+			<p class="mt-1 text-xs text-muted">
+				for i, t := range e.Tags {
+					if i > 0 {
+						{ ", " }
+					}
+					<a href={ templ.SafeURL("/library?tag=" + url.QueryEscape(t)) } class="hover:text-fg">#{ t }</a>
+				}
+			</p>
+		}
+		if e.AcquiredOn != nil {
+			<p class="mt-1 text-xs text-muted">Acquired { e.AcquiredOn.Format("2006-01-02") }</p>
+		}
+		if e.Notes != nil {
+			<p class="mt-2 whitespace-pre-line text-sm">{ *e.Notes }</p>
+		}
+		<div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
+			<span class="text-muted">
+				if e.Played {
+					Played
+				} else {
+					Not played
+				}
+				if e.PlayedUser != nil {
+					(set by you)
+				}
+			</span>
+			@playedButton(e, "true", "Played", e.PlayedUser != nil && *e.PlayedUser)
+			@playedButton(e, "false", "Not played", e.PlayedUser != nil && !*e.PlayedUser)
+			if e.PlayedUser != nil {
+				@playedButton(e, "reset", "Reset", false)
+			}
+			<span class="ml-auto flex gap-2">
+				<a href={ templ.SafeURL("/library/" + e.PublicID.String() + "/edit") } class="inline-flex items-center gap-1 text-muted hover:text-fg">
+					@ui.Icon("edit", "h-4 w-4")
+					Edit
+				</a>
+				<form method="post" action={ templ.SafeURL("/library/" + e.PublicID.String() + "/delete") } hx-boost="false" class="inline">
+					<button type="submit" class="inline-flex items-center gap-1 text-muted hover:text-danger">
+						@ui.Icon("trash", "h-4 w-4")
+						Remove
+					</button>
+				</form>
+			</span>
+		</div>
+	</li>
+}
+
+templ playedButton(e db.LibraryItemEntriesRow, value, label string, active bool) {
+	<form method="post" action={ templ.SafeURL("/library/" + e.PublicID.String() + "/played") } class="inline">
+		<input type="hidden" name="played" value={ value }/>
+		<button type="submit" class={ "rounded-md border px-2 py-0.5 text-xs", templ.KV("border-accent bg-accent/15", active), templ.KV("border-line hover:bg-surface-2", !active) } aria-pressed?={ active }>{ label }</button>
+	</form>
+}
+
+templ compactSelect(id, name, label, value string, opts []ui.Option) {
+	<div>
+		<label for={ id } class={ compactLabel }>{ label }</label>
+		<select id={ id } name={ name } class={ compactInput }>
+			for _, o := range opts {
+				<option value={ o.Value } selected?={ o.Value == value }>{ o.Label }</option>
+			}
+		</select>
+	</div>
+}
+
+templ quickAddForm(v panelView) {
+	<form method="post" action={ templ.SafeURL("/items/" + v.Item.PublicID.String() + "/library") } hx-boost="false" class="mt-3 grid gap-3 sm:grid-cols-2">
+		if len(v.Editions) > 0 {
+			@compactSelect("lib-add-edition", "edition", "Edition", "", editionOptions(v.Editions))
+		}
+		@compactSelect("lib-add-ownership", "ownership", "Ownership", "owned", ownershipOptions)
+		@compactSelect("lib-add-visibility", "visibility", "Visibility", string(v.Viewer.DefaultVisibility), visibilityOptions)
+		<label class="inline-flex items-center gap-2 self-end pb-1.5 text-sm">
+			<input type="checkbox" name="backlog" class="h-4 w-4 rounded border-line accent-accent"/>
+			In backlog
+		</label>
+		<div class="sm:col-span-2">
+			@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+				@ui.Icon("plus", "h-4 w-4")
+				Add to library
+			}
+		</div>
+	</form>
+}
+
+// Full-page forms (validation errors, no-JS editing).
+
+templ entryFields(f *form.Form) {
+	@ui.Select("ownership", "Ownership", f.Get("ownership"), f.Error("ownership"), entryOwnershipOptions(), nil)
+	@ui.Checkbox("backlog", "In backlog", f.Bool("backlog"))
+	@ui.Field("acquired_on", "Acquired on", f.Get("acquired_on"), f.Error("acquired_on"), templ.Attributes{"type": "date"})
+	@ui.Field("tags", "Tags", f.Get("tags"), f.Error("tags"), templ.Attributes{"placeholder": "comma, separated"})
+	@ui.Textarea("notes", "Notes (always private)", f.Get("notes"), f.Error("notes"), nil)
+	@ui.Select("visibility", "Visibility", f.Get("visibility"), f.Error("visibility"), visibilityOptions, nil)
+}
+
+templ addPage(p ui.Page, item db.MediaItem, editions []db.ListEditionsForItemRow, f *form.Form) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Add to library", item.Title)
+		@ui.Card("max-w-xl") {
+			<form method="post" action={ templ.SafeURL("/items/" + item.PublicID.String() + "/library") } hx-boost="false" class="space-y-4">
+				@ui.FormErrors(f.Errors)
+				if len(editions) > 0 {
+					@ui.Select("edition", "Edition", f.Get("edition"), f.Error("edition"), editionOptions(editions), nil)
+				}
+				@entryFields(f)
+				<div class="flex gap-2">
+					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+						Add to library
+					}
+					@ui.LinkButton("ghost", itemURL(item.PublicID)) {
+						Cancel
+					}
+				</div>
+			</form>
+		}
+	}
+}
+
+templ editPage(p ui.Page, entry db.LibraryGetEntryForEditRow, f *form.Form) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Edit library entry", entry.ItemTitle)
+		@ui.Card("max-w-xl") {
+			<form method="post" action={ templ.SafeURL("/library/" + entry.PublicID.String()) } hx-boost="false" class="space-y-4">
+				@ui.FormErrors(f.Errors)
+				@entryFields(f)
+				<div class="flex gap-2">
+					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+						Save
+					}
+					@ui.LinkButton("ghost", itemURL(entry.ItemPublicID)) {
+						Cancel
+					}
+				</div>
+			</form>
+		}
+	}
+}
