@@ -60,6 +60,36 @@ func (q *Queries) ActivityInsert(ctx context.Context, arg ActivityInsertParams) 
 	return i, err
 }
 
+const activitySetVisibility = `-- name: ActivitySetVisibility :exec
+update activity_events set visibility = $1
+where user_id = $2
+  and (review_id = $3
+       or list_id = $4
+       or experience_id = $5
+       or library_entry_id = $6)
+`
+
+type ActivitySetVisibilityParams struct {
+	Visibility     Visibility
+	UserID         int64
+	ReviewID       *int64
+	ListID         *int64
+	ExperienceID   *int64
+	LibraryEntryID *int64
+}
+
+func (q *Queries) ActivitySetVisibility(ctx context.Context, arg ActivitySetVisibilityParams) error {
+	_, err := q.db.Exec(ctx, activitySetVisibility,
+		arg.Visibility,
+		arg.UserID,
+		arg.ReviewID,
+		arg.ListID,
+		arg.ExperienceID,
+		arg.LibraryEntryID,
+	)
+	return err
+}
+
 const catalogSearch = `-- name: CatalogSearch :many
 select m.id, m.public_id, m.kind, m.title, m.sort_title, m.original_title, m.release_date, m.release_year, m.synopsis, m.genres, m.cover_image_id, m.metadata_provider, m.metadata_refreshed_at, m.locked_fields, m.created_by_user_id, m.created_at, m.updated_at,
        (ts_rank(to_tsvector('simple', m.title || ' ' || coalesce(m.original_title, '')), websearch_to_tsquery('simple', $1::text)) + similarity(m.title, $1::text))::real as rank

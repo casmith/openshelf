@@ -105,3 +105,11 @@ select * from images where id = $1;
 insert into activity_events (user_id, verb, media_item_id, library_entry_id, experience_id, review_id, list_id, visibility, occurred_at)
 values (@user_id, @verb, @media_item_id, @library_entry_id, @experience_id, @review_id, @list_id, @visibility, @occurred_at)
 returning *;
+
+-- name: ActivitySetVisibility :exec
+update activity_events set visibility = @visibility
+where user_id = @user_id
+  and (review_id = sqlc.narg(review_id)
+       or list_id = sqlc.narg(list_id)
+       or experience_id = sqlc.narg(experience_id)
+       or library_entry_id = sqlc.narg(library_entry_id));

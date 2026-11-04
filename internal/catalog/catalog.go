@@ -2,7 +2,6 @@ package catalog
 
 import (
 	"context"
-	"net/http"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -11,18 +10,9 @@ import (
 	"github.com/casmith/openshelf/internal/deps"
 )
 
-// Register adds this package's routes. Owned by task S01 (docs/plan.md).
-func Register(mux *http.ServeMux, d *deps.Deps) {}
-
-type headerData struct {
-	Item     db.MediaItem
-	Credits  []db.ListCreditsForItemsRow
-	Editions []db.ListEditionsForItemRow
-}
-
-// Header renders the top of the item detail page: cover, title, credits, synopsis, editions.
+// Header renders the top of the item detail page: cover, title, credits, details, editions.
 func Header(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaItem) (templ.Component, error) {
-	credits, err := d.Q.ListCreditsForItems(ctx, []int64{item.ID})
+	details, err := LoadItemInput(ctx, d.Q, item)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +20,8 @@ func Header(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaItem
 	if err != nil {
 		return nil, err
 	}
-	return header(headerData{Item: item, Credits: credits, Editions: editions}), nil
+	return header(headerData{Item: item, Details: details, Editions: editions, CanEdit: CanEdit(viewer, item),
+		CanRefresh: viewer.Role == db.UserRoleAdmin && item.MetadataProvider != nil}), nil
 }
 
 func KindLabel(k db.MediaKind) string {

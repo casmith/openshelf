@@ -30,6 +30,10 @@ func (h *handlers) show(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+	if n, err := h.d.Q.CountUsers(r.Context()); err == nil && n == 0 {
+		http.Redirect(w, r, "/setup", http.StatusSeeOther)
+		return
+	}
 	f := form.New(nil)
 	f.Values.Set("next", auth.SafeNext(r.URL.Query().Get("next")))
 	web.Render(w, r, http.StatusOK, page(web.PageFor(r, h.d, "Sign in", ""), f))

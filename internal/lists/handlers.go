@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/casmith/openshelf/internal/activity"
 	"github.com/casmith/openshelf/internal/auth"
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/deps"
@@ -228,13 +229,20 @@ func (h *handlers) update(w http.ResponseWriter, r *http.Request) {
 		web.Render(w, r, http.StatusUnprocessableEntity, editPage(web.PageFor(r, h.d, "Edit "+list.Name, "lists"), list, f))
 		return
 	}
-	list, err = h.d.Q.ListsUpdate(r.Context(), db.ListsUpdateParams{
-		ID:          list.ID,
-		UserID:      list.UserID,
-		Name:        f.Get("name"),
-		Description: f.Optional("description"),
-		Ranked:      f.Bool("ranked"),
-		Visibility:  db.Visibility(f.Get("visibility")),
+	err = h.d.WithTx(r.Context(), func(q *db.Queries, _ pgx.Tx) error {
+		var err error
+		list, err = q.ListsUpdate(r.Context(), db.ListsUpdateParams{
+			ID:          list.ID,
+			UserID:      list.UserID,
+			Name:        f.Get("name"),
+			Description: f.Optional("description"),
+			Ranked:      f.Bool("ranked"),
+			Visibility:  db.Visibility(f.Get("visibility")),
+		})
+		if err != nil {
+			return err
+		}
+		return activity.SetVisibility(r.Context(), q, list.UserID, activity.Source{ListID: &list.ID}, list.Visibility)
 	})
 	if err != nil {
 		web.Error(w, r, h.d, err)

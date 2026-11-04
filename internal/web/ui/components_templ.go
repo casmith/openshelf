@@ -15,7 +15,7 @@ const (
 	btnSecondary = "border border-line bg-surface hover:bg-surface-2"
 	btnGhost     = "text-muted hover:bg-surface-2 hover:text-fg"
 	btnDanger    = "bg-danger text-white hover:brightness-110"
-	inputClass   = "block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm placeholder:text-muted focus:border-accent focus:outline-none"
+	InputClass   = "block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm placeholder:text-muted focus:border-accent focus:outline-none"
 )
 
 func btnVariant(v string) string {
@@ -448,7 +448,7 @@ func Field(name, text, value, err string, attrs templ.Attributes) templ.Componen
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var21 = []any{inputClass}
+			var templ_7745c5c3_Var21 = []any{InputClass}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_ElementWriter, templ_7745c5c3_Var21...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -555,7 +555,7 @@ func Textarea(name, text, value, err string, attrs templ.Attributes) templ.Compo
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var26 = []any{inputClass}
+			var templ_7745c5c3_Var26 = []any{InputClass}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_ElementWriter, templ_7745c5c3_Var26...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -675,7 +675,7 @@ func Select(name, text, value, err string, options []Option, attrs templ.Attribu
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var32 = []any{inputClass}
+			var templ_7745c5c3_Var32 = []any{InputClass}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_ElementWriter, templ_7745c5c3_Var32...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

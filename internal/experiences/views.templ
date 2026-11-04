@@ -1,0 +1,194 @@
+package experiences
+
+import (
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/web/form"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+const panelID = "experiences-panel"
+
+templ panel(p panelData) {
+	<div id={ panelID }>
+		@ui.Card("") {
+			<div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+				<h2 class="text-lg font-semibold">Your history</h2>
+				if s := timesSummary(p.Item.Kind, TimesFinished(p.Exps)); s != "" {
+					<p class="text-sm text-muted" data-testid="times-finished">{ s }</p>
+				}
+			</div>
+			if p.Error != "" {
+				<p role="alert" class="mb-4 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{ p.Error }</p>
+			}
+			if len(p.Exps) == 0 {
+				<p class="mb-4 text-sm text-muted">Nothing logged yet.</p>
+			} else {
+				<ul class="mb-4 space-y-4">
+					for _, e := range p.Exps {
+						@experienceRow(p.Item, e)
+					}
+				</ul>
+			}
+			if _, busy := InProgress(p.Exps); !busy {
+				<div class="flex flex-wrap items-end gap-3 border-t border-line pt-4">
+					@actionForm(createURL(p.Item), "") {
+						@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+							{ startLabel(p.Item.Kind, TimesFinished(p.Exps) > 0) }
+						}
+					}
+					@actionForm(createURL(p.Item), "flex items-end gap-2") {
+						<input type="hidden" name="mode" value="finished"/>
+						<div>
+							<label for="f-finished_on-new" class="mb-1 block text-xs text-muted">Finished on</label>
+							<input id="f-finished_on-new" type="date" name="finished_on" value={ p.Today } max={ p.Today } class="block rounded-md border border-line bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"/>
+						</div>
+						@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+							Log as { pastVerb(p.Item.Kind) }
+						}
+					}
+				</div>
+			}
+		}
+	</div>
+}
+
+templ actionForm(url string, class string) {
+	<form method="post" action={ templ.SafeURL(url) } hx-post={ url } hx-target={ "#" + panelID } hx-swap="outerHTML" class={ class }>
+		{ children... }
+	</form>
+}
+
+templ experienceRow(item db.MediaItem, e db.Experience) {
+	<li class="rounded-md border border-line p-3" data-experience={ e.PublicID.String() }>
+		<div class="flex flex-wrap items-center gap-2">
+			@ui.Badge(stateLabel(e.State))
+			<span class="text-sm text-muted">{ dateLine(e) }</span>
+			<span class="ml-auto flex items-center gap-1">
+				<a href={ templ.SafeURL(expURL(e, "edit")) } class="rounded px-2 py-1 text-xs text-muted hover:bg-surface-2 hover:text-fg">Edit</a>
+				<button type="button" hx-delete={ expURL(e, "") } hx-confirm="Delete this entry?" hx-target={ "#" + panelID } hx-swap="outerHTML" class="rounded px-2 py-1 text-xs text-muted hover:bg-surface-2 hover:text-danger">Delete</button>
+			</span>
+		</div>
+		if e.ProgressUnit != nil {
+			<div class="mt-3">
+				@progressBar(e)
+			</div>
+		}
+		if active(e) {
+			<div class="mt-3 flex flex-wrap items-center gap-2">
+				if e.ProgressUnit != nil {
+					@actionForm(expURL(e, "progress"), "flex items-center gap-2") {
+						@progressInput(e, "f-progress-"+e.PublicID.String())
+						@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+							Update
+						}
+					}
+				}
+				for _, a := range rowActions {
+					if Allowed(e, a) {
+						@actionForm(expURL(e, string(a)), "") {
+							@ui.Button(actionVariant(a), templ.Attributes{"type": "submit"}) {
+								{ actionLabel(a) }
+							}
+						}
+					}
+				}
+			</div>
+		}
+		if e.Notes != nil {
+			<p class="mt-2 whitespace-pre-line text-sm">{ *e.Notes }</p>
+		}
+	</li>
+}
+
+templ progressBar(e db.Experience) {
+	<div class="flex items-center gap-3 text-xs text-muted">
+		if e.ProgressTotal != nil && *e.ProgressTotal > 0 {
+			<progress class="h-2 flex-1 accent-accent" value={ fmtNum(deref(e.ProgressCurrent)) } max={ fmtNum(*e.ProgressTotal) }></progress>
+		}
+		<span data-testid="progress">{ progressText(e) }</span>
+	</div>
+}
+
+templ progressInput(e db.Experience, id string) {
+	<label for={ id } class="sr-only">Progress in { unitLabel(*e.ProgressUnit) }</label>
+	<input
+		id={ id }
+		type="number"
+		name="value"
+		min="0"
+		step="any"
+		if e.ProgressTotal != nil {
+			max={ fmtNum(*e.ProgressTotal) }
+		}
+		value={ fmtNum(deref(e.ProgressCurrent)) }
+		class="block w-24 rounded-md border border-line bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+	/>
+	<span class="text-xs text-muted">{ unitLabel(*e.ProgressUnit) }</span>
+}
+
+templ quickLog(item db.MediaItem, e db.Experience) {
+	<div id={ quickID(item) } class="mt-2 space-y-2">
+		if e.ProgressUnit != nil {
+			@progressBar(e)
+		}
+		<div class="flex flex-wrap items-center gap-2">
+			if e.ProgressUnit != nil {
+				@quickForm(item, expURL(e, "progress"), "flex items-center gap-1") {
+					@progressInput(e, "f-quick-"+e.PublicID.String())
+					<button type="submit" class="rounded-md border border-line bg-surface px-2 py-1 text-xs hover:bg-surface-2">Log</button>
+				}
+			}
+			@quickForm(item, expURL(e, string(ActionFinish)), "") {
+				<button type="submit" class="rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-fg hover:brightness-110">Finish</button>
+			}
+		</div>
+	</div>
+}
+
+templ quickForm(item db.MediaItem, url string, class string) {
+	<form method="post" action={ templ.SafeURL(url) } hx-post={ url } hx-target={ "#" + quickID(item) } hx-swap="outerHTML" class={ class }>
+		<input type="hidden" name="view" value="quick"/>
+		{ children... }
+	</form>
+}
+
+templ failPage(p ui.Page, item db.MediaItem, msg string) {
+	@ui.Layout(p) {
+		@ui.Card("max-w-xl") {
+			<p role="alert" class="text-sm text-danger">{ msg }</p>
+			<div class="mt-4">
+				@ui.LinkButton("secondary", itemURL(item)) {
+					Back to { item.Title }
+				}
+			</div>
+		}
+	}
+}
+
+templ editPage(p ui.Page, item db.MediaItem, e db.Experience, f *form.Form) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Edit "+stateLabel(e.State)+" entry", item.Title) {
+			@ui.LinkButton("ghost", itemURL(item)) {
+				Back
+			}
+		}
+		@ui.Card("max-w-xl") {
+			<form method="post" action={ templ.SafeURL(expURL(e, "edit")) } class="space-y-4" hx-boost="false">
+				@ui.FormErrors(f.Errors)
+				@ui.Field("started_on", "Started on", f.Get("started_on"), f.Error("started_on"), templ.Attributes{"type": "date"})
+				if e.State == db.ExperienceStateFinished || e.State == db.ExperienceStateAbandoned {
+					@ui.Field("finished_on", finishedLabel(e.State), f.Get("finished_on"), f.Error("finished_on"), templ.Attributes{"type": "date", "required": true})
+				}
+				<div class="grid gap-4 sm:grid-cols-2">
+					@ui.Select("progress_unit", "Progress unit", f.Get("progress_unit"), f.Error("progress_unit"), unitOptions(), nil)
+					@ui.Field("progress_total", "Total", f.Get("progress_total"), f.Error("progress_total"), templ.Attributes{"type": "number", "min": "0", "step": "any"})
+				</div>
+				@ui.Textarea("notes", "Notes", f.Get("notes"), f.Error("notes"), nil)
+				@ui.Select("visibility", "Visibility", f.Get("visibility"), f.Error("visibility"), visibilityOptions(), nil)
+				@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+					Save
+				}
+			</form>
+		}
+	}
+}

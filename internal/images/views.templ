@@ -1,0 +1,31 @@
+package images
+
+import (
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+templ coverPage(p ui.Page, item db.MediaItem, errMsg string) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Cover", item.Title) {
+			@ui.LinkButton("ghost", "/items/"+item.PublicID.String()) {
+				Back to item
+			}
+		}
+		@ui.Card("max-w-2xl") {
+			<div class="flex flex-col gap-6 sm:flex-row">
+				<img src={ CoverURL(item.CoverImageID, item.Kind, Card) } alt="Current cover" class="aspect-[2/3] w-40 shrink-0 self-start rounded-md border border-line bg-surface-2 object-cover"/>
+				<form method="post" action={ templ.SafeURL("/items/" + item.PublicID.String() + "/cover") } enctype="multipart/form-data" class="flex-1 space-y-5">
+					if errMsg != "" {
+						@ui.FormErrors(map[string]string{"_form": errMsg})
+					}
+					@ui.Field("cover", "Image file", "", "", templ.Attributes{"type": "file", "accept": "image/jpeg,image/png,image/gif,image/webp", "required": true, "aria-describedby": "f-cover-help"})
+					<p id="f-cover-help" class="-mt-4 text-xs text-muted">JPEG, PNG, GIF, or WebP up to 10 MB. Replaces the current cover.</p>
+					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+						Upload cover
+					}
+				</form>
+			</div>
+		}
+	}
+}

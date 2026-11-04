@@ -41,3 +41,23 @@ func Record(ctx context.Context, q *db.Queries, ev Event) (db.ActivityEvent, err
 		OccurredAt:     ev.OccurredAt,
 	})
 }
+
+// Source identifies the record whose events change visibility; set exactly one field.
+type Source struct {
+	LibraryEntryID *int64
+	ExperienceID   *int64
+	ReviewID       *int64
+	ListID         *int64
+}
+
+// SetVisibility keeps a record's journal events in step with the record's own visibility.
+func SetVisibility(ctx context.Context, q *db.Queries, userID int64, src Source, vis db.Visibility) error {
+	return q.ActivitySetVisibility(ctx, db.ActivitySetVisibilityParams{
+		Visibility:     vis,
+		UserID:         userID,
+		ReviewID:       src.ReviewID,
+		ListID:         src.ListID,
+		ExperienceID:   src.ExperienceID,
+		LibraryEntryID: src.LibraryEntryID,
+	})
+}

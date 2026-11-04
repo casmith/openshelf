@@ -876,6 +876,12 @@ type Credit struct {
 	Position    int16
 }
 
+type DiscoverSource struct {
+	MediaItemID int64
+	Provider    string
+	ExternalID  string
+}
+
 type Edition struct {
 	ID              int64
 	PublicID        uuid.UUID
