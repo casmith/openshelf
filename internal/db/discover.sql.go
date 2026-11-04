@@ -310,6 +310,45 @@ func (q *Queries) DiscoverInsertPlatformExternalID(ctx context.Context, arg Disc
 	return err
 }
 
+const discoverItemsMissingCovers = `-- name: DiscoverItemsMissingCovers :many
+select id, kind, title, release_year from media_items
+where cover_image_id is null and not ('cover_image_id' = any(locked_fields))
+order by id
+limit $1::int
+`
+
+type DiscoverItemsMissingCoversRow struct {
+	ID          int64
+	Kind        MediaKind
+	Title       string
+	ReleaseYear *int16
+}
+
+func (q *Queries) DiscoverItemsMissingCovers(ctx context.Context, lim int32) ([]DiscoverItemsMissingCoversRow, error) {
+	rows, err := q.db.Query(ctx, discoverItemsMissingCovers, lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DiscoverItemsMissingCoversRow{}
+	for rows.Next() {
+		var i DiscoverItemsMissingCoversRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Title,
+			&i.ReleaseYear,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const discoverListStale = `-- name: DiscoverListStale :many
 select s.media_item_id from discover_sources s
 join media_items m on m.id = s.media_item_id
@@ -354,6 +393,21 @@ type DiscoverLockExternalIDParams struct {
 
 func (q *Queries) DiscoverLockExternalID(ctx context.Context, arg DiscoverLockExternalIDParams) error {
 	_, err := q.db.Exec(ctx, discoverLockExternalID, arg.Provider, arg.Value)
+	return err
+}
+
+const discoverSetCoverIfMissing = `-- name: DiscoverSetCoverIfMissing :exec
+update media_items set cover_image_id = $1, updated_at = now()
+where id = $2 and cover_image_id is null
+`
+
+type DiscoverSetCoverIfMissingParams struct {
+	ImageID *int64
+	ID      int64
+}
+
+func (q *Queries) DiscoverSetCoverIfMissing(ctx context.Context, arg DiscoverSetCoverIfMissingParams) error {
+	_, err := q.db.Exec(ctx, discoverSetCoverIfMissing, arg.ImageID, arg.ID)
 	return err
 }
 
