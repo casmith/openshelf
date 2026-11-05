@@ -95,8 +95,20 @@ templ navLinks(p Page) {
 			</ul>
 		</div>
 		<div class="mt-auto space-y-1 border-t border-line pt-4">
-			<a href="/settings" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface-2">
+			<a
+				href={ templ.SafeURL("/@" + p.User.Username) }
+				class={ "flex items-center gap-3 rounded-md px-3 py-2 text-sm",
+					templ.KV("bg-accent/15 font-medium", p.Nav == "profile"),
+					templ.KV("hover:bg-surface-2", p.Nav != "profile") }
+				if p.Nav == "profile" {
+					aria-current="page"
+				}
+			>
 				@Icon("user", "h-5 w-5 text-muted")
+				Profile
+			</a>
+			<a href="/settings" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface-2">
+				@Icon("settings", "h-5 w-5 text-muted")
 				<span class="truncate">{ p.User.DisplayName }</span>
 			</a>
 			<form method="post" action="/logout" hx-boost="false">

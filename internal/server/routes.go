@@ -16,6 +16,7 @@ import (
 	"github.com/casmith/openshelf/internal/library"
 	"github.com/casmith/openshelf/internal/lists"
 	"github.com/casmith/openshelf/internal/login"
+	"github.com/casmith/openshelf/internal/profile"
 	"github.com/casmith/openshelf/internal/pwa"
 	"github.com/casmith/openshelf/internal/reviews"
 	"github.com/casmith/openshelf/internal/stats"
@@ -40,6 +41,10 @@ func routes(mux *http.ServeMux, d *deps.Deps) {
 	pwa.Register(mux, d)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if name, ok := profile.Username(r.URL.Path); ok && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			profile.Show(w, r, d, name)
+			return
+		}
 		web.NotFound(w, r, d)
 	})
 }

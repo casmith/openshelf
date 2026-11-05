@@ -63,7 +63,7 @@ func (h *handlers) index(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, l := range rows {
-			cards = append(cards, listCard{ID: l.ID, PublicID: l.PublicID, Name: l.Name, Owner: l.OwnerDisplayName,
+			cards = append(cards, listCard{ID: l.ID, PublicID: l.PublicID, Name: l.Name, Owner: l.OwnerDisplayName, OwnerName: l.OwnerUsername,
 				Count: l.ItemCount, Ranked: l.Ranked, Visibility: l.Visibility})
 		}
 	} else {

@@ -70,8 +70,8 @@ templ indexPage(p ui.Page, shared bool, cards []listCard) {
 }
 
 templ listCardView(c listCard) {
-	<li>
-		<a href={ templ.SafeURL(listURL(c.PublicID)) } class="group block rounded-lg border border-line bg-surface p-3 hover:border-accent">
+	<li class="rounded-lg border border-line bg-surface p-3 hover:border-accent">
+		<a href={ templ.SafeURL(listURL(c.PublicID)) } class="group block">
 			<div class="grid aspect-square grid-cols-2 grid-rows-2 gap-1 overflow-hidden rounded-md">
 				for i := range 4 {
 					if i < len(c.Covers) {
@@ -82,15 +82,16 @@ templ listCardView(c listCard) {
 				}
 			</div>
 			<p class="mt-2 truncate font-medium group-hover:text-accent">{ c.Name }</p>
-			<p class="truncate text-xs text-muted">
-				{ countLabel(c.Count) }
-				if c.Owner != "" {
-					· by { c.Owner }
-				} else {
-					· { visibilityLabel(c.Visibility) }
-				}
-			</p>
 		</a>
+		<p class="truncate text-xs text-muted">
+			{ countLabel(c.Count) }
+			if c.Owner != "" {
+				· by
+				<a href={ templ.SafeURL("/@" + c.OwnerName) } class="hover:text-accent">{ c.Owner }</a>
+			} else {
+				· { visibilityLabel(c.Visibility) }
+			}
+		</p>
 	</li>
 }
 
@@ -156,7 +157,7 @@ templ editPage(p ui.Page, l db.List, f *form.Form) {
 
 templ showPage(p ui.Page, d listData) {
 	@ui.Layout(p) {
-		@ui.PageHeader(d.List.Name, "by "+d.List.OwnerDisplayName+" · "+countLabel(int64(len(d.Items)))+" · "+visibilityLabel(d.List.Visibility)) {
+		@ui.PageHeader(d.List.Name, "") {
 			if d.Owner {
 				@ui.LinkButton("secondary", listURL(d.List.PublicID)+"/edit") {
 					@ui.Icon("edit", "h-4 w-4")
@@ -164,6 +165,11 @@ templ showPage(p ui.Page, d listData) {
 				}
 			}
 		}
+		<p class="-mt-4 mb-6 text-sm text-muted">
+			by
+			<a href={ templ.SafeURL("/@" + d.List.OwnerUsername) } class="hover:text-accent">{ d.List.OwnerDisplayName }</a>
+			· { countLabel(int64(len(d.Items))) } · { visibilityLabel(d.List.Visibility) }
+		</p>
 		if d.List.Description != nil {
 			<p class="-mt-2 mb-6 max-w-prose whitespace-pre-line text-sm leading-relaxed">{ *d.List.Description }</p>
 		}
