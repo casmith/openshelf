@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -16,6 +17,8 @@ type Config struct {
 	DataDir     string
 	SecretKey   string
 	AutoMigrate bool
+	// TrustedProxies may set X-Forwarded-For (e.g. the ingress or gateway network).
+	TrustedProxies []netip.Prefix
 
 	TMDBToken        string
 	IGDBClientID     string
@@ -39,6 +42,9 @@ func Load() (Config, error) {
 	var err error
 	if c.AutoMigrate, err = boolEnv("OPENSHELF_AUTO_MIGRATE", true); err != nil {
 		return c, err
+	}
+	if c.TrustedProxies, err = parsePrefixes(os.Getenv("OPENSHELF_TRUSTED_PROXIES")); err != nil {
+		return c, fmt.Errorf("OPENSHELF_TRUSTED_PROXIES: %w", err)
 	}
 	switch c.Env {
 	case "development", "production", "test":
@@ -77,4 +83,29 @@ func boolEnv(key string, def bool) (bool, error) {
 		return false, fmt.Errorf("%s: %w", key, err)
 	}
 	return b, nil
+}
+
+// parsePrefixes reads comma-separated CIDRs or bare IPs.
+func parsePrefixes(v string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, f := range strings.Split(v, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		if !strings.Contains(f, "/") {
+			a, err := netip.ParseAddr(f)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+			continue
+		}
+		pfx, err := netip.ParsePrefix(f)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, pfx.Masked())
+	}
+	return out, nil
 }

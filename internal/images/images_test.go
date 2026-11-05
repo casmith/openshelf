@@ -236,7 +236,7 @@ func TestCoverHandler(t *testing.T) {
 	if res.StatusCode != http.StatusFound || res.Header.Get("Location") != images.PlaceholderURL(db.MediaKindGame) {
 		t.Fatalf("pending: %d %s", res.StatusCode, res.Header.Get("Location"))
 	}
-	if cc := res.Header.Get("Cache-Control"); strings.Contains(cc, "immutable") || !strings.Contains(cc, "max-age=60") {
+	if cc := res.Header.Get("Cache-Control"); cc != "no-store" {
 		t.Fatalf("pending cache-control %q", cc)
 	}
 

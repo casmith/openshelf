@@ -1,12 +1,14 @@
 package login
 
 import (
-	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
+
+	"github.com/casmith/openshelf/internal/web"
 )
 
 type limiter struct {
@@ -14,6 +16,7 @@ type limiter struct {
 	clients map[string]*client
 	every   time.Duration
 	burst   int
+	trusted []netip.Prefix
 }
 
 type client struct {
@@ -21,15 +24,12 @@ type client struct {
 	seen time.Time
 }
 
-func newLimiter(every time.Duration, burst int) *limiter {
-	return &limiter{clients: map[string]*client{}, every: every, burst: burst}
+func newLimiter(every time.Duration, burst int, trusted []netip.Prefix) *limiter {
+	return &limiter{clients: map[string]*client{}, every: every, burst: burst, trusted: trusted}
 }
 
 func (l *limiter) allow(r *http.Request) bool {
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
-	}
+	ip := web.ClientIP(r, l.trusted)
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()

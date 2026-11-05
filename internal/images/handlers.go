@@ -44,7 +44,8 @@ func serveCover(w http.ResponseWriter, r *http.Request, d *deps.Deps) {
 			}
 		}
 	}
-	w.Header().Set("Cache-Control", "public, max-age=60")
+	// Not ready yet: never cache, or browsers keep the placeholder after the cover arrives.
+	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, PlaceholderURL(db.MediaKind(r.URL.Query().Get("k"))), http.StatusFound)
 }
 
