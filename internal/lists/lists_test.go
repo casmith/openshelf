@@ -374,7 +374,7 @@ func TestSharedListsReadableNotEditable(t *testing.T) {
 
 	res = c.Get("/lists?tab=shared")
 	wantStatus(t, res, http.StatusOK)
-	if !strings.Contains(res.Body, "Bob instance") || !strings.Contains(res.Body, "Bob public") || !strings.Contains(res.Body, "by Bob") {
+	if !strings.Contains(res.Body, "Bob instance") || !strings.Contains(res.Body, "Bob public") || !strings.Contains(res.Body, `href="/@bob"`) {
 		t.Fatal("shared tab should list bob's instance and public lists")
 	}
 	if res := c.Get("/lists"); strings.Contains(res.Body, "Bob instance") {

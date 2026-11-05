@@ -5,7 +5,7 @@ import "github.com/casmith/openshelf/internal/db"
 // Page carries what the layout needs to render around page content.
 type Page struct {
 	Title string
-	Nav   string // active nav key: "home", "library", "journal", "lists", "stats", "discover", or a kind
+	Nav   string // active nav key: "home", "library", "journal", "lists", "stats", "discover", "profile", or a kind
 	User  *db.User
 	Flash string
 }

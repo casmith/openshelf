@@ -33,6 +33,7 @@ type listCard struct {
 	PublicID   uuid.UUID
 	Name       string
 	Owner      string
+	OwnerName  string
 	Count      int64
 	Ranked     bool
 	Visibility db.Visibility
