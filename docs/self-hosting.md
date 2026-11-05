@@ -52,6 +52,7 @@ All configuration is environment variables. `.env.example` lists every one with 
 | --- | --- | --- |
 | `OPENSHELF_SECRET_KEY` | none | Required in production, 32+ characters. Encrypts stored account credentials (Steam and other connections, from v0.2); changing it makes them unreadable. |
 | `OPENSHELF_BASE_URL` | `http://localhost:8080` | The public URL. Used for links and to decide whether cookies are `Secure`. |
+| `OPENSHELF_TRUSTED_PROXIES` | _(empty)_ | Comma-separated CIDRs or IPs of your reverse proxy. `X-Forwarded-For` from these addresses is used to find the real client IP for login rate limiting and logs. Leave empty when nothing sits in front of OpenShelf. |
 | `OPENSHELF_DATABASE_URL` | built from `POSTGRES_PASSWORD` | Set it to use an external Postgres 18 server. |
 | `OPENSHELF_ENV` | `production` in the image | |
 | `OPENSHELF_AUTO_MIGRATE` | `true` | Applies migrations on startup. |
@@ -62,6 +63,7 @@ All configuration is environment variables. `.env.example` lists every one with 
 
 Run OpenShelf behind a TLS-terminating proxy (Caddy, Traefik, nginx) for anything reachable from outside your LAN:
 
+1. Set `OPENSHELF_TRUSTED_PROXIES` to your proxy's address or network (e.g. `172.18.0.0/16` for a Docker network, or the pod CIDR in Kubernetes). Without it, every request appears to come from the proxy and one user's failed logins can rate-limit everyone.
 1. Set `OPENSHELF_BASE_URL=https://shelf.example.com`. An `https://` base URL makes session cookies `Secure`, so logins only work over HTTPS from then on.
 2. Bind the app to loopback (`OPENSHELF_HTTP_PORT=127.0.0.1:8080`) or put the proxy on the compose network and drop the `ports:` mapping.
 3. Forward the original `Host` header. Cross-origin form posts are rejected, so the browser's `Origin` must match the host it sees.

@@ -292,3 +292,33 @@ func TestPlatformSlugsAreSeeded(t *testing.T) {
 		}
 	}
 }
+
+func TestRankGamesPrefersOriginalExactMatch(t *testing.T) {
+	ts := func(y int) *int64 { v := time.Date(y, 6, 1, 0, 0, 0, 0, time.UTC).Unix(); return &v }
+	plats := func(n int) []named { return make([]named, n) }
+	games := []game{
+		{ID: 1, Name: "Final Fantasy VII & Final Fantasy VIII Remastered Twin Pack", FirstReleaseDate: ts(2019)},
+		{ID: 2, Name: "Final Fantasy VII", FirstReleaseDate: ts(2015), Platforms: plats(4)},
+		{ID: 3, Name: "Final Fantasy VII", FirstReleaseDate: ts(1997), Platforms: plats(1)},
+		{ID: 4, Name: "Final Fantasy VII", FirstReleaseDate: ts(1997), Platforms: plats(3)},
+	}
+	rankGames(games, "final fantasy vii")
+	var got []int64
+	for _, g := range games {
+		got = append(got, g.ID)
+	}
+	want := []int64{4, 3, 2, 1}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestNormalizeGenre(t *testing.T) {
+	for in, want := range map[string]string{"Role-playing (RPG)": "rpg", "Shooter": "shooter", "Simulator (Sim)": "simulator"} {
+		if got := normalizeGenre(in); got != want {
+			t.Errorf("normalizeGenre(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

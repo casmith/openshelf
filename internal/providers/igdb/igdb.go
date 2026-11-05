@@ -108,6 +108,7 @@ func (p *Provider) Search(ctx context.Context, kind db.MediaKind, query string) 
 	if err := p.query(ctx, "games", body, &games); err != nil {
 		return nil, err
 	}
+	rankGames(games, query)
 	out := make([]providers.SearchResult, 0, len(games))
 	for _, g := range games {
 		if g.Name == "" {
@@ -162,7 +163,7 @@ func toItem(g game) *providers.Item {
 		item.ReleaseDate = &t
 	}
 	for _, gn := range g.Genres {
-		if s := strings.ToLower(strings.TrimSpace(gn.Name)); s != "" {
+		if s := normalizeGenre(gn.Name); s != "" {
 			item.Genres = append(item.Genres, s)
 		}
 	}
@@ -367,4 +368,47 @@ func coverFor(c *cover) string {
 		return ""
 	}
 	return fmt.Sprintf(coverURL, c.ImageID)
+}
+
+// rankGames puts exact title matches first, preferring the original release
+// (oldest, then most platforms) over later ports and re-releases that IGDB
+// lists as separate games. Other results keep IGDB's order.
+func rankGames(games []game, query string) {
+	q := strings.ToLower(strings.TrimSpace(query))
+	exact := func(g game) bool { return strings.ToLower(strings.TrimSpace(g.Name)) == q }
+	sort.SliceStable(games, func(i, j int) bool {
+		a, b := games[i], games[j]
+		if exact(a) != exact(b) {
+			return exact(a)
+		}
+		if !exact(a) {
+			return false
+		}
+		ya, yb := year(a.FirstReleaseDate), year(b.FirstReleaseDate)
+		if ya != yb && ya != 0 && yb != 0 {
+			return ya < yb
+		}
+		return len(a.Platforms) > len(b.Platforms)
+	})
+}
+
+var genreNames = map[string]string{
+	"role-playing (rpg)":         "rpg",
+	"real time strategy (rts)":   "real-time strategy",
+	"turn-based strategy (tbs)":  "turn-based strategy",
+	"hack and slash/beat 'em up": "hack and slash",
+	"point-and-click":            "point and click",
+	"quiz/trivia":                "trivia",
+	"card & board game":          "card and board",
+}
+
+func normalizeGenre(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	if mapped, ok := genreNames[s]; ok {
+		return mapped
+	}
+	if i := strings.Index(s, " ("); i > 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }

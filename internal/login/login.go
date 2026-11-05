@@ -19,7 +19,7 @@ type handlers struct {
 }
 
 func Register(mux *http.ServeMux, d *deps.Deps) {
-	h := &handlers{d: d, lim: newLimiter(6*time.Second, 10)}
+	h := &handlers{d: d, lim: newLimiter(6*time.Second, 10, d.Config.TrustedProxies)}
 	mux.HandleFunc("GET /login", h.show)
 	mux.HandleFunc("POST /login", h.submit)
 	mux.HandleFunc("POST /logout", h.logout)

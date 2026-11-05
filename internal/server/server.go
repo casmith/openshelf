@@ -34,5 +34,5 @@ func New(d *deps.Deps) http.Handler {
 	})
 	root.Handle("/", appHandler)
 
-	return chain(root, recoverer(d.Log), requestID, accessLog(d.Log), securityHeaders)
+	return chain(root, recoverer(d.Log), requestID, accessLog(d.Log, d.Config.TrustedProxies), securityHeaders)
 }

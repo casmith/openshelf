@@ -7,9 +7,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/casmith/openshelf/internal/web"
 )
 
 type ctxKey struct{}
@@ -50,7 +53,7 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func accessLog(log *slog.Logger) func(http.Handler) http.Handler {
+func accessLog(log *slog.Logger, trusted []netip.Prefix) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -62,7 +65,8 @@ func accessLog(log *slog.Logger) func(http.Handler) http.Handler {
 			}
 			log.Log(r.Context(), level, "request",
 				"method", r.Method, "path", r.URL.Path, "status", sw.status,
-				"duration_ms", time.Since(start).Milliseconds(), "request_id", RequestID(r.Context()))
+				"duration_ms", time.Since(start).Milliseconds(), "request_id", RequestID(r.Context()),
+				"remote", r.RemoteAddr, "client", web.ClientIP(r, trusted))
 		})
 	}
 }
