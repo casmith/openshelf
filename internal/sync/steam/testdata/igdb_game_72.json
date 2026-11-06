@@ -1,0 +1,21 @@
+[
+  {
+    "id": 72,
+    "url": "https://www.igdb.com/games/portal-2",
+    "name": "Portal 2",
+    "summary": "Chell wakes up in a decaying Aperture Science.",
+    "first_release_date": 1303171200,
+    "cover": {"id": 99001, "image_id": "co1rs4"},
+    "genres": [{"id": 9, "name": "Puzzle"}, {"id": 5, "name": "Shooter"}],
+    "franchise": {"id": 1, "name": "Portal"},
+    "involved_companies": [
+      {"id": 900, "company": {"id": 56, "name": "Valve"}, "developer": true, "publisher": true}
+    ],
+    "release_dates": [
+      {"id": 9001, "date": 1303171200, "platform": {"id": 6, "name": "PC (Microsoft Windows)"}, "region": 8}
+    ],
+    "external_games": [
+      {"id": 9101, "category": 1, "external_game_source": 1, "uid": "620"}
+    ]
+  }
+]

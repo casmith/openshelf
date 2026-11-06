@@ -1,0 +1,47 @@
+{
+  "response": {
+    "game_count": 3,
+    "games": [
+      {
+        "appid": 620,
+        "name": "Portal 2",
+        "playtime_forever": 1800,
+        "playtime_2weeks": 95,
+        "img_icon_url": "2e478fc6874d06ae5baf0d147f6f21203291aa02",
+        "has_community_visible_stats": false,
+        "playtime_windows_forever": 1800,
+        "playtime_mac_forever": 0,
+        "playtime_linux_forever": 0,
+        "playtime_deck_forever": 0,
+        "rtime_last_played": 1762300800,
+        "playtime_disconnected": 0
+      },
+      {
+        "appid": 400,
+        "name": "Portal",
+        "playtime_forever": 0,
+        "img_icon_url": "cfa928ab4119dd137e50d728e8fe703e4e970aff",
+        "has_community_visible_stats": false,
+        "playtime_windows_forever": 0,
+        "playtime_mac_forever": 0,
+        "playtime_linux_forever": 0,
+        "playtime_deck_forever": 0,
+        "rtime_last_played": 0,
+        "playtime_disconnected": 0
+      },
+      {
+        "appid": 2099990,
+        "name": "Tiny Indie Jam Game",
+        "playtime_forever": 42,
+        "img_icon_url": "",
+        "has_community_visible_stats": false,
+        "playtime_windows_forever": 42,
+        "playtime_mac_forever": 0,
+        "playtime_linux_forever": 0,
+        "playtime_deck_forever": 0,
+        "rtime_last_played": 1700000000,
+        "playtime_disconnected": 0
+      }
+    ]
+  }
+}

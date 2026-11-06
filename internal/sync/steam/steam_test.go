@@ -53,7 +53,7 @@ func TestClientGet(t *testing.T) {
 }
 
 func TestSyncRoundTripsCursor(t *testing.T) {
-	a := New(config.Config{SteamAPIKey: "k"})
+	a := NewFakeSteam(t).Adapter(nil)
 	in, _ := json.Marshal(Cursor{Owned: json.RawMessage(`{"x":1}`)})
 	out, err := a.Sync(context.Background(), db.ConnectedAccount{}, in, &synctest.Recorder{})
 	if err != nil {
