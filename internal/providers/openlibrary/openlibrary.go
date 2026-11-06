@@ -40,7 +40,12 @@ func New(cfg config.Config) *Provider { return NewWithURL(DefaultBaseURL) }
 
 // NewWithURL points the adapter at another host; tests use an httptest server.
 func NewWithURL(baseURL string) *Provider {
-	return &Provider{BaseURL: strings.TrimRight(baseURL, "/"), http: providers.NewHTTP(1, 3)}
+	return NewWithHTTP(baseURL, providers.NewHTTP(1, 3))
+}
+
+// NewWithHTTP is NewWithURL with a caller-supplied client (tests lift the rate limit).
+func NewWithHTTP(baseURL string, h *providers.HTTP) *Provider {
+	return &Provider{BaseURL: strings.TrimRight(baseURL, "/"), http: h}
 }
 
 func (p *Provider) Name() string          { return "openlibrary" }

@@ -44,7 +44,7 @@ func events(t *testing.T, e *env, acct db.ConnectedAccount) map[string]int {
 	return out
 }
 
-func TestImportStartedAndFinishedBooks(t *testing.T) {
+func TestImportWholeLibrary(t *testing.T) {
 	e := newEnv(t)
 	alice := testutil.CreateUser(t, e.s.Q, "alice")
 	acct := e.linkAccount(t, alice, aliceABSID, aliceKey)
@@ -56,11 +56,8 @@ func TestImportStartedAndFinishedBooks(t *testing.T) {
 	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "no longer in Audiobookshelf") {
 		t.Fatalf("warnings %v", res.Warnings)
 	}
-	if res.Counts.EntriesCreated != 2 || res.Counts.ItemsResolved != 1 || res.Counts.ItemsCreated != 1 {
+	if c := res.Counts; c.Games != 3 || c.WithProgress != 2 || c.EntriesCreated != 3 || c.ItemsResolved != 1 || c.ItemsCreated != 2 || c.Deferred != 0 {
 		t.Fatalf("counts %+v", res.Counts)
-	}
-	if e.abs.hits("/api/items/"+itemUnread) != 0 || e.abs.hits("/api/items/"+itemHailMary) != 1 || !e.abs.Expanded {
-		t.Fatalf("item fetches %v expanded %t", e.abs.Hits, e.abs.Expanded)
 	}
 
 	// Hail Mary resolved to the Open Library work by ISBN.
@@ -86,8 +83,17 @@ func TestImportStartedAndFinishedBooks(t *testing.T) {
 	if got := scalar[string](t, e.s, `select format::text || ' ' || duration_minutes from editions where media_item_id = $1`, wk); got != "audiobook 2760" {
 		t.Errorf("edition %q", got)
 	}
-	if n := scalar[int](t, e.s, `select count(*) from media_items`); n != 2 {
-		t.Errorf("%d items; untouched books and podcasts must not be imported", n)
+	if n := scalar[int](t, e.s, `select count(*) from media_items`); n != 3 {
+		t.Errorf("%d items; podcasts must not be imported", n)
+	}
+	// The untouched book is owned, not played, not in the backlog, and has no progress.
+	un := itemFor(t, e, itemUnread)
+	if got := scalar[string](t, e.s, `select ownership_source::text || ' ' || (played_source is null) || ' ' || backlog || ' ' || visibility::text
+		|| ' ' || (ownership_user is null and played_user is null) from library_entries where user_id = $1 and media_item_id = $2`, alice.ID, un); got != "owned true false private true" {
+		t.Errorf("untouched entry %q", got)
+	}
+	if n := scalar[int](t, e.s, `select count(*) from external_progress where media_item_id = $1`, un); n != 0 {
+		t.Errorf("untouched book has %d progress rows", n)
 	}
 
 	for _, id := range []int64{hm, wk} {
@@ -108,7 +114,7 @@ func TestImportStartedAndFinishedBooks(t *testing.T) {
 		t.Errorf("kings progress %q", got)
 	}
 	ev := events(t, e, acct)
-	if ev[sync.EventEntryCreated] != 2 || ev[sync.EventProgressChanged] != 2 || ev[sync.EventSourceFinished] != 1 || ev[sync.EventNeedsReview] != 1 {
+	if ev[sync.EventEntryCreated] != 3 || ev[sync.EventProgressChanged] != 2 || ev[sync.EventSourceFinished] != 1 || ev[sync.EventNeedsReview] != 2 {
 		t.Errorf("events %v", ev)
 	}
 	if got := scalar[string](t, e.s, `select after from sync_events where kind = 'source_finished'`); got != "2026-01-15" {
@@ -124,11 +130,14 @@ func TestImportStartedAndFinishedBooks(t *testing.T) {
 	if res.Err != nil || res.Counts.EntriesCreated != 0 || res.Counts.EntriesUpdated != 0 || res.Counts.ItemsCreated != 0 {
 		t.Fatalf("re-run: %+v %v", res.Counts, res.Err)
 	}
-	if after := events(t, e, acct); after[sync.EventProgressChanged] != before[sync.EventProgressChanged] || after[sync.EventSourceFinished] != before[sync.EventSourceFinished] || after[sync.EventEntryCreated] != 2 {
+	if after := events(t, e, acct); after[sync.EventProgressChanged] != before[sync.EventProgressChanged] || after[sync.EventSourceFinished] != before[sync.EventSourceFinished] || after[sync.EventEntryCreated] != 3 || len(after) != len(before) {
 		t.Errorf("re-run events %v, before %v", after, before)
 	}
-	if n := scalar[int](t, e.s, `select count(*) from media_items`); n != 2 {
+	if n := scalar[int](t, e.s, `select count(*) from media_items`); n != 3 {
 		t.Errorf("re-run created items: %d", n)
+	}
+	if lookups := e.ol.lookups(); run(t, e, acct).Err != nil || e.ol.lookups() != lookups {
+		t.Errorf("re-run looked up imported books: %d -> %d", lookups, e.ol.lookups())
 	}
 
 	// More listening, then finishing, each record one event.
@@ -193,8 +202,9 @@ func TestCrossUserIsolation(t *testing.T) {
 	bobAcct := e.linkAccount(t, bob, bobABSID, bobKey)
 	run(t, e, aliceAcct)
 	run(t, e, bobAcct)
-	if n := scalar[int](t, e.s, `select count(*) from library_entries where user_id = $1`, bob.ID); n != 0 {
-		t.Errorf("bob got %d entries from alice's progress", n)
+	// Bob's key sees the same shared library, so he owns the same books, without alice's progress.
+	if got := scalar[string](t, e.s, `select count(*) || ' ' || count(played_source) from library_entries where user_id = $1`, bob.ID); got != "3 0" {
+		t.Errorf("bob's entries (count, with played_source): %s", got)
 	}
 	if n := scalar[int](t, e.s, `select count(*) from external_progress where account_id = $1`, bobAcct.ID); n != 0 {
 		t.Errorf("bob has %d progress rows", n)

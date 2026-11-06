@@ -104,6 +104,10 @@ func eventText(e eventView, provider string) string {
 		return provider + " says " + valueText(e.Field, e.Before) + "; you said " + valueText(e.Field, e.After)
 	case sync.EventExcludedSkipped:
 		return "Skipped: excluded from sync"
+	case sync.EventTitleChanged:
+		return "Title cleaned up: " + valueText(nil, e.Before) + " → " + valueText(nil, e.After)
+	case sync.EventItemMatched:
+		return "Matched to a catalog item (was " + valueText(nil, e.Before) + ")"
 	case sync.EventProgressChanged:
 		return "Progress: " + percentText(e.Before) + " → " + percentText(e.After)
 	case sync.EventSourceFinished:
@@ -139,12 +143,14 @@ func countsSummary(v historyView, r runView) string {
 			parts = append(parts, strconv.Itoa(n)+" "+label)
 		}
 	}
-	add(c.Games, plural(c.Games, v.Noun, v.Noun+"s"))
+	add(c.Games, plural(c.Games, v.Noun, v.Noun+"s")+" in library")
+	add(c.WithProgress, "with progress")
 	add(c.EntriesCreated, "added")
 	add(c.EntriesUpdated, "updated")
 	add(c.ItemsCreated, "new items")
 	add(c.Excluded, "excluded")
 	add(c.Skipped, "skipped")
+	add(c.Deferred, "queued for matching")
 	add(c.Unlocks, "unlocks")
 	if len(parts) == 0 {
 		return "No changes"

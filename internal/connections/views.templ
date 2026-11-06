@@ -58,7 +58,7 @@ func capsSummary(c adapterView) string {
 	add(c.Caps.OwnedGames, "owned games")
 	add(c.Caps.Playtime, "playtime")
 	add(c.Caps.Achievements, "achievements")
-	add(c.Caps.Audiobooks, "audiobooks you've started")
+	add(c.Caps.Audiobooks, "your audiobook library")
 	add(c.Caps.Progress, "listening progress")
 	if s == "" {
 		return ""
@@ -145,6 +145,9 @@ templ accountCard(a accountView, loc *time.Location) {
 				}
 			</div>
 		</div>
+		if a.Summary != "" {
+			<p class="text-sm" data-library-summary>{ a.Summary }</p>
+		}
 		<dl class="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
 			<div class="flex gap-2"><dt class="text-muted">Last synced</dt><dd>{ when(a.LastSyncedAt, loc) }</dd></div>
 			<div class="flex gap-2"><dt class="text-muted">Next sync</dt><dd>{ when(a.NextSyncAt, loc) }</dd></div>

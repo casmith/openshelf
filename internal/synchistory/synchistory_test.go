@@ -339,7 +339,7 @@ func TestHistoryPagesAndFilters(t *testing.T) {
 	if n := strings.Count(second.Body, "data-run="); n != 2 {
 		t.Fatalf("second page has %d runs", n)
 	}
-	contains(t, text(second.Body), "Partial", "Game details are private", "2 games · 2 added · 2 new items", "Newest")
+	contains(t, text(second.Body), "Partial", "Game details are private", "2 games in library · 2 added · 2 new items", "Newest")
 
 	review := text(e.c.Get(e.historyURL() + "?filter=needs_review").Body)
 	contains(t, review, "Obscure Game", "Portal 2", "needs review")

@@ -32,6 +32,7 @@ select ev.id, ev.kind, ev.field, ev.before, ev.after, ev.respected_override, ev.
 from sync_events ev
 left join media_items m on m.id = ev.media_item_id
 where ev.account_id = @account_id and ev.user_id = @user_id and ev.kind = @kind
+  and (ev.kind <> 'needs_review' or m.metadata_provider is null)
 order by ev.created_at desc, ev.id desc
 limit @lim::int;
 

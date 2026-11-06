@@ -3,6 +3,8 @@
 package connections
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -33,6 +35,7 @@ type adapterView struct {
 type accountView struct {
 	db.ConnectionsListForUserRow
 	ProviderName string
+	Summary      string // "142 books in your library, 4 with progress"
 }
 
 type pageData struct {
@@ -53,11 +56,12 @@ func show(w http.ResponseWriter, r *http.Request, d *deps.Deps) {
 		data.Adapters = append(data.Adapters, adapterView{Provider: a.Provider(), Caps: a.Capabilities(), Configured: a.Configured()})
 	}
 	for _, row := range rows {
-		name := row.Provider
+		v := accountView{ConnectionsListForUserRow: row, ProviderName: row.Provider}
 		if a, ok := d.SyncAdapters.Get(row.Provider); ok {
-			name = a.Capabilities().DisplayName
+			v.ProviderName = a.Capabilities().DisplayName
+			v.Summary = librarySummary(a.Capabilities(), row.LastCounts)
 		}
-		data.Accounts = append(data.Accounts, accountView{ConnectionsListForUserRow: row, ProviderName: name})
+		data.Accounts = append(data.Accounts, v)
 	}
 	web.Render(w, r, http.StatusOK, page(web.PageFor(r, d, "Connections", ""), data))
 }
@@ -88,6 +92,28 @@ func syncNow(w http.ResponseWriter, r *http.Request, d *deps.Deps) {
 		web.Flash(r.Context(), d, "Sync started. Refresh in a minute to see the results.")
 	}
 	web.Redirect(w, r, "/settings/connections")
+}
+
+func librarySummary(c sync.Capabilities, raw []byte) string {
+	var counts runner.Counts
+	if json.Unmarshal(raw, &counts) != nil || counts.Games == 0 {
+		return ""
+	}
+	noun := "item"
+	switch {
+	case c.OwnedGames:
+		noun = "game"
+	case c.Audiobooks:
+		noun = "book"
+	}
+	if counts.Games != 1 {
+		noun += "s"
+	}
+	s := fmt.Sprintf("%d %s in your library", counts.Games, noun)
+	if c.Progress {
+		s += fmt.Sprintf(", %d with progress", counts.WithProgress)
+	}
+	return s
 }
 
 func location(tz string) *time.Location {

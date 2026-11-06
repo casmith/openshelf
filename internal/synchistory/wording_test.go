@@ -14,8 +14,8 @@ func TestRunCountsNameWhatTheProviderSyncs(t *testing.T) {
 	alice := testutil.CreateUser(t, s.Q, "alice")
 	c := s.LoginAs(t, alice)
 	for _, tc := range []struct{ provider, counts, want, not string }{
-		{"steam", `{"games": 2, "entries_created": 1}`, "2 games · 1 added", "books"},
-		{"audiobookshelf", `{"games": 3}`, "3 books", "games"},
+		{"steam", `{"games": 2, "entries_created": 1}`, "2 games in library · 1 added", "books"},
+		{"audiobookshelf", `{"games": 142, "with_progress": 4, "deferred": 120}`, "142 books in library · 4 with progress · 120 queued for matching", "games"},
 		{"audiobookshelf", `{"games": 1}`, "1 book", "games"},
 	} {
 		acct := testutil.CreateConnectedAccount(t, s.Pool, alice.ID, tc.provider, tc.provider+"-"+tc.counts)

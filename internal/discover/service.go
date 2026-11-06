@@ -50,6 +50,14 @@ func Import(ctx context.Context, d *deps.Deps, providerName string, it *provider
 	return out, err
 }
 
+// ImportTx is Import inside the caller's transaction.
+func ImportTx(ctx context.Context, d *deps.Deps, q *db.Queries, tx pgx.Tx, providerName string, it *providers.Item, userID *int64) (db.MediaItem, error) {
+	if it == nil || it.Title == "" || !it.Kind.Valid() || len(it.ExternalIDs) == 0 {
+		return db.MediaItem{}, ErrInvalidImport
+	}
+	return importTx(ctx, d, q, tx, providerName, it, userID)
+}
+
 func importTx(ctx context.Context, d *deps.Deps, q *db.Queries, tx pgx.Tx, providerName string, it *providers.Item, userID *int64) (db.MediaItem, error) {
 	primary := it.ExternalIDs[0]
 	if err := q.DiscoverLockExternalID(ctx, db.DiscoverLockExternalIDParams{Provider: primary.Provider, Value: primary.Value}); err != nil {

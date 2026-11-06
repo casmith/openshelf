@@ -113,6 +113,10 @@ func eventText(e eventView, provider string) string {
 		return provider + " says " + valueText(e.Field, e.Before) + "; you said " + valueText(e.Field, e.After)
 	case sync.EventExcludedSkipped:
 		return "Skipped: excluded from sync"
+	case sync.EventTitleChanged:
+		return "Title cleaned up: " + valueText(nil, e.Before) + " → " + valueText(nil, e.After)
+	case sync.EventItemMatched:
+		return "Matched to a catalog item (was " + valueText(nil, e.Before) + ")"
 	case sync.EventProgressChanged:
 		return "Progress: " + percentText(e.Before) + " → " + percentText(e.After)
 	case sync.EventSourceFinished:
@@ -148,12 +152,14 @@ func countsSummary(v historyView, r runView) string {
 			parts = append(parts, strconv.Itoa(n)+" "+label)
 		}
 	}
-	add(c.Games, plural(c.Games, v.Noun, v.Noun+"s"))
+	add(c.Games, plural(c.Games, v.Noun, v.Noun+"s")+" in library")
+	add(c.WithProgress, "with progress")
 	add(c.EntriesCreated, "added")
 	add(c.EntriesUpdated, "updated")
 	add(c.ItemsCreated, "new items")
 	add(c.Excluded, "excluded")
 	add(c.Skipped, "skipped")
+	add(c.Deferred, "queued for matching")
 	add(c.Unlocks, "unlocks")
 	if len(parts) == 0 {
 		return "No changes"
@@ -399,7 +405,7 @@ func historyPage(p ui.Page, v historyView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.Noun)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 220, Col: 74}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 226, Col: 74}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -434,7 +440,7 @@ func historyPage(p ui.Page, v historyView) templ.Component {
 						var templ_7745c5c3_Var11 string
 						templ_7745c5c3_Var11, templ_7745c5c3_Err = templruntime.NewAttributeExpression(x.ProviderItemKey).Resolve(ctx)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 225, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 231, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var11)
 						if templ_7745c5c3_Err != nil {
@@ -452,7 +458,7 @@ func historyPage(p ui.Page, v historyView) templ.Component {
 							var templ_7745c5c3_Var12 string
 							templ_7745c5c3_Var12, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL("/items/" + x.ItemPublicID.String())).ResolveURL(ctx)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 228, Col: 71}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 234, Col: 71}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var12)
 							if templ_7745c5c3_Err != nil {
@@ -465,7 +471,7 @@ func historyPage(p ui.Page, v historyView) templ.Component {
 							var templ_7745c5c3_Var13 string
 							templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(*x.ItemTitle)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 228, Col: 126}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 234, Col: 126}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 							if templ_7745c5c3_Err != nil {
@@ -483,7 +489,7 @@ func historyPage(p ui.Page, v historyView) templ.Component {
 							var templ_7745c5c3_Var14 string
 							templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(x.ProviderItemKey)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 230, Col: 55}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 236, Col: 55}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 							if templ_7745c5c3_Err != nil {
@@ -501,7 +507,7 @@ func historyPage(p ui.Page, v historyView) templ.Component {
 						var templ_7745c5c3_Var15 string
 						templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(x.CreatedAt.In(v.Loc).Format("Jan 2, 2006"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 233, Col: 95}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 239, Col: 95}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 						if templ_7745c5c3_Err != nil {
@@ -514,7 +520,7 @@ func historyPage(p ui.Page, v historyView) templ.Component {
 						var templ_7745c5c3_Var16 string
 						templ_7745c5c3_Var16, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(excludeDeleteURL(v.Account, x.ProviderItemKey) + "/delete")).ResolveURL(ctx)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 235, Col: 112}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 241, Col: 112}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var16)
 						if templ_7745c5c3_Err != nil {
@@ -527,7 +533,7 @@ func historyPage(p ui.Page, v historyView) templ.Component {
 						var templ_7745c5c3_Var17 string
 						templ_7745c5c3_Var17, templ_7745c5c3_Err = templruntime.NewAttributeExpression(excludeDeleteURL(v.Account, x.ProviderItemKey)).Resolve(ctx)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 235, Col: 173}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 241, Col: 173}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var17)
 						if templ_7745c5c3_Err != nil {
@@ -613,7 +619,7 @@ func runItem(v historyView, r runView) templ.Component {
 		var templ_7745c5c3_Var20 string
 		templ_7745c5c3_Var20, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.PublicID.String()).Resolve(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 252, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 258, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var20)
 		if templ_7745c5c3_Err != nil {
@@ -637,7 +643,7 @@ func runItem(v historyView, r runView) templ.Component {
 			var templ_7745c5c3_Var21 string
 			templ_7745c5c3_Var21, templ_7745c5c3_Err = templruntime.NewAttributeExpression(runURL(v, r)).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 257, Col: 25}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 263, Col: 25}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var21)
 			if templ_7745c5c3_Err != nil {
@@ -655,7 +661,7 @@ func runItem(v historyView, r runView) templ.Component {
 		var templ_7745c5c3_Var22 string
 		templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(r.StartedAt.In(v.Loc).Format("Jan 2, 2006 15:04"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 264, Col: 81}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 270, Col: 81}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 		if templ_7745c5c3_Err != nil {
@@ -676,7 +682,7 @@ func runItem(v historyView, r runView) templ.Component {
 		var templ_7745c5c3_Var23 string
 		templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(countsSummary(v, r))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 266, Col: 58}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 272, Col: 58}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 		if templ_7745c5c3_Err != nil {
@@ -689,7 +695,7 @@ func runItem(v historyView, r runView) templ.Component {
 		var templ_7745c5c3_Var24 string
 		templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(int(r.EventCount)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 267, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 273, Col: 78}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 		if templ_7745c5c3_Err != nil {
@@ -712,7 +718,7 @@ func runItem(v historyView, r runView) templ.Component {
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(w)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 273, Col: 14}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 279, Col: 14}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 				if templ_7745c5c3_Err != nil {
@@ -736,7 +742,7 @@ func runItem(v historyView, r runView) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(*r.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 278, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 284, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
@@ -764,7 +770,7 @@ func runItem(v historyView, r runView) templ.Component {
 			var templ_7745c5c3_Var27 string
 			templ_7745c5c3_Var27, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(runURL(v, r))).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 284, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 290, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var27)
 			if templ_7745c5c3_Err != nil {
@@ -845,7 +851,7 @@ func eventList(v historyView, events []eventView) templ.Component {
 					var templ_7745c5c3_Var31 string
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.Kind).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 300, Col: 158}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 306, Col: 158}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var31)
 					if templ_7745c5c3_Err != nil {
@@ -877,7 +883,7 @@ func eventList(v historyView, events []eventView) templ.Component {
 					var templ_7745c5c3_Var32 string
 					templ_7745c5c3_Var32, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(href)).ResolveURL(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 302, Col: 35}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 308, Col: 35}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var32)
 					if templ_7745c5c3_Err != nil {
@@ -890,7 +896,7 @@ func eventList(v historyView, events []eventView) templ.Component {
 					var templ_7745c5c3_Var33 string
 					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(*e.ItemTitle)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 302, Col: 90}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 308, Col: 90}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 					if templ_7745c5c3_Err != nil {
@@ -908,7 +914,7 @@ func eventList(v historyView, events []eventView) templ.Component {
 					var templ_7745c5c3_Var34 string
 					templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(*e.ProviderItemKey)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 304, Col: 52}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 310, Col: 52}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 					if templ_7745c5c3_Err != nil {
@@ -926,7 +932,7 @@ func eventList(v historyView, events []eventView) templ.Component {
 				var templ_7745c5c3_Var35 string
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(eventText(e, v.Provider))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 306, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 312, Col: 37}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -967,7 +973,7 @@ func eventList(v historyView, events []eventView) templ.Component {
 				var templ_7745c5c3_Var36 string
 				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.EventsCap))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 317, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 323, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 				if templ_7745c5c3_Err != nil {
@@ -1032,7 +1038,7 @@ func itemPanel(v panelView) templ.Component {
 				var templ_7745c5c3_Var39 string
 				templ_7745c5c3_Var39, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.ProviderItemKey).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 332, Col: 82}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 338, Col: 82}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var39)
 				if templ_7745c5c3_Err != nil {
@@ -1045,7 +1051,7 @@ func itemPanel(v panelView) templ.Component {
 				var templ_7745c5c3_Var40 string
 				templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(r.ProviderName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 334, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 340, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 				if templ_7745c5c3_Err != nil {
@@ -1059,7 +1065,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var41 string
 					templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(r.DisplayName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 337, Col: 24}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 343, Col: 24}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 					if templ_7745c5c3_Err != nil {
@@ -1069,7 +1075,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var42 string
 					templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(r.ExternalAccountID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 339, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 345, Col: 30}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 					if templ_7745c5c3_Err != nil {
@@ -1093,7 +1099,7 @@ func itemPanel(v panelView) templ.Component {
 				var templ_7745c5c3_Var43 string
 				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(hours(r.MinutesTotal))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 347, Col: 94}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 353, Col: 94}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 				if templ_7745c5c3_Err != nil {
@@ -1111,7 +1117,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var44 string
 					templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(hours(*r.Minutes2weeks))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 349, Col: 103}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 355, Col: 103}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 					if templ_7745c5c3_Err != nil {
@@ -1129,7 +1135,7 @@ func itemPanel(v panelView) templ.Component {
 				var templ_7745c5c3_Var45 string
 				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(when(r.LastPlayedAt, v.Loc))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 351, Col: 103}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 357, Col: 103}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 				if templ_7745c5c3_Err != nil {
@@ -1142,7 +1148,7 @@ func itemPanel(v panelView) templ.Component {
 				var templ_7745c5c3_Var46 string
 				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(when(r.LastSyncedAt, v.Loc))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 352, Col: 101}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 358, Col: 101}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 				if templ_7745c5c3_Err != nil {
@@ -1160,7 +1166,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var47 string
 					templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(int(r.Unlocked)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 354, Col: 107}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 360, Col: 107}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 					if templ_7745c5c3_Err != nil {
@@ -1173,7 +1179,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var48 string
 					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(int(r.Total)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 354, Col: 140}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 360, Col: 140}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 					if templ_7745c5c3_Err != nil {
@@ -1205,7 +1211,7 @@ func itemPanel(v panelView) templ.Component {
 				var templ_7745c5c3_Var49 string
 				templ_7745c5c3_Var49, templ_7745c5c3_Err = templruntime.NewAttributeExpression(r.ProviderItemKey).Resolve(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 361, Col: 82}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 367, Col: 82}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var49)
 				if templ_7745c5c3_Err != nil {
@@ -1218,7 +1224,7 @@ func itemPanel(v panelView) templ.Component {
 				var templ_7745c5c3_Var50 string
 				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(r.ProviderName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 363, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 369, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 				if templ_7745c5c3_Err != nil {
@@ -1232,7 +1238,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var51 string
 					templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(r.DisplayName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 366, Col: 24}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 372, Col: 24}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 					if templ_7745c5c3_Err != nil {
@@ -1242,7 +1248,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var52 string
 					templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(r.ExternalAccountID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 368, Col: 30}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 374, Col: 30}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 					if templ_7745c5c3_Err != nil {
@@ -1267,7 +1273,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var53 string
 					templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(progressSummary(r, v.Loc))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 377, Col: 35}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 383, Col: 35}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 					if templ_7745c5c3_Err != nil {
@@ -1280,7 +1286,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var54 string
 					templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(r.ProviderName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 377, Col: 58}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 383, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 					if templ_7745c5c3_Err != nil {
@@ -1290,7 +1296,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var55 string
 					templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(r.ProviderName)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 379, Col: 24}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 385, Col: 24}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
 					if templ_7745c5c3_Err != nil {
@@ -1303,7 +1309,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var56 string
 					templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(progressSummary(r, v.Loc))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 379, Col: 57}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 385, Col: 57}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 					if templ_7745c5c3_Err != nil {
@@ -1322,7 +1328,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var57 string
 					templ_7745c5c3_Var57, templ_7745c5c3_Err = templruntime.NewAttributeExpression(strconv.Itoa(percent(r.Fraction))).Resolve(ctx)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 383, Col: 179}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 389, Col: 179}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var57)
 					if templ_7745c5c3_Err != nil {
@@ -1335,7 +1341,7 @@ func itemPanel(v panelView) templ.Component {
 					var templ_7745c5c3_Var58 string
 					templ_7745c5c3_Var58, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(progressWidth(r.Fraction))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 384, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 390, Col: 71}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 					if templ_7745c5c3_Err != nil {
@@ -1353,7 +1359,7 @@ func itemPanel(v panelView) templ.Component {
 				var templ_7745c5c3_Var59 string
 				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(when(r.LastSyncedAt, v.Loc))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 387, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 393, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 				if templ_7745c5c3_Err != nil {
@@ -1415,7 +1421,7 @@ func sourceControls(item db.MediaItem, accountID, key string, excluded bool) tem
 			var templ_7745c5c3_Var61 string
 			templ_7745c5c3_Var61, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(sourceIncludeURL(accountID, key) + "/delete")).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 399, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 405, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var61)
 			if templ_7745c5c3_Err != nil {
@@ -1428,7 +1434,7 @@ func sourceControls(item db.MediaItem, accountID, key string, excluded bool) tem
 			var templ_7745c5c3_Var62 string
 			templ_7745c5c3_Var62, templ_7745c5c3_Err = templruntime.NewAttributeExpression(sourceIncludeURL(accountID, key)).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 399, Col: 138}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 405, Col: 138}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var62)
 			if templ_7745c5c3_Err != nil {
@@ -1441,7 +1447,7 @@ func sourceControls(item db.MediaItem, accountID, key string, excluded bool) tem
 			var templ_7745c5c3_Var63 string
 			templ_7745c5c3_Var63, templ_7745c5c3_Err = templruntime.NewAttributeExpression(itemURL(item)).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 400, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 406, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var63)
 			if templ_7745c5c3_Err != nil {
@@ -1485,7 +1491,7 @@ func sourceControls(item db.MediaItem, accountID, key string, excluded bool) tem
 			var templ_7745c5c3_Var65 string
 			templ_7745c5c3_Var65, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL("/connections/" + accountID + "/exclusions")).ResolveURL(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 406, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 412, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var65)
 			if templ_7745c5c3_Err != nil {
@@ -1498,7 +1504,7 @@ func sourceControls(item db.MediaItem, accountID, key string, excluded bool) tem
 			var templ_7745c5c3_Var66 string
 			templ_7745c5c3_Var66, templ_7745c5c3_Err = templruntime.NewAttributeExpression(key).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 407, Col: 47}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 413, Col: 47}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var66)
 			if templ_7745c5c3_Err != nil {
@@ -1511,7 +1517,7 @@ func sourceControls(item db.MediaItem, accountID, key string, excluded bool) tem
 			var templ_7745c5c3_Var67 string
 			templ_7745c5c3_Var67, templ_7745c5c3_Err = templruntime.NewAttributeExpression(item.PublicID.String()).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 408, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 414, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var67)
 			if templ_7745c5c3_Err != nil {
@@ -1524,7 +1530,7 @@ func sourceControls(item db.MediaItem, accountID, key string, excluded bool) tem
 			var templ_7745c5c3_Var68 string
 			templ_7745c5c3_Var68, templ_7745c5c3_Err = templruntime.NewAttributeExpression(itemURL(item)).Resolve(ctx)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 409, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 415, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var68)
 			if templ_7745c5c3_Err != nil {
@@ -1568,7 +1574,7 @@ func sourceControls(item db.MediaItem, accountID, key string, excluded bool) tem
 		var templ_7745c5c3_Var70 string
 		templ_7745c5c3_Var70, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(connectionsURL + "/" + accountID + "/history")).ResolveURL(ctx)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 415, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 421, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var70)
 		if templ_7745c5c3_Err != nil {
@@ -1680,7 +1686,7 @@ func unlinkPage(p ui.Page, v unlinkView) templ.Component {
 				var templ_7745c5c3_Var76 string
 				templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(len(v.Remove) + len(v.Keep)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 439, Col: 66}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 445, Col: 66}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 				if templ_7745c5c3_Err != nil {
@@ -1693,7 +1699,7 @@ func unlinkPage(p ui.Page, v unlinkView) templ.Component {
 				var templ_7745c5c3_Var77 string
 				templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(plural(len(v.Remove)+len(v.Keep), "entry", "entries"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 439, Col: 124}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 445, Col: 124}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 				if templ_7745c5c3_Err != nil {
@@ -1711,7 +1717,7 @@ func unlinkPage(p ui.Page, v unlinkView) templ.Component {
 					var templ_7745c5c3_Var78 string
 					templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(len(v.Remove)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 441, Col: 68}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 447, Col: 68}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
 					if templ_7745c5c3_Err != nil {
@@ -1739,7 +1745,7 @@ func unlinkPage(p ui.Page, v unlinkView) templ.Component {
 						var templ_7745c5c3_Var79 string
 						templ_7745c5c3_Var79, templ_7745c5c3_Err = templruntime.NewAttributeExpression(e.PublicID.String()).Resolve(ctx)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 449, Col: 42}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 455, Col: 42}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var79)
 						if templ_7745c5c3_Err != nil {
@@ -1752,7 +1758,7 @@ func unlinkPage(p ui.Page, v unlinkView) templ.Component {
 						var templ_7745c5c3_Var80 string
 						templ_7745c5c3_Var80, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL("/items/" + e.ItemPublicID.String())).ResolveURL(ctx)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 450, Col: 68}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 456, Col: 68}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var80)
 						if templ_7745c5c3_Err != nil {
@@ -1765,7 +1771,7 @@ func unlinkPage(p ui.Page, v unlinkView) templ.Component {
 						var templ_7745c5c3_Var81 string
 						templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(e.Title)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 450, Col: 102}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 456, Col: 102}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 						if templ_7745c5c3_Err != nil {
@@ -1788,7 +1794,7 @@ func unlinkPage(p ui.Page, v unlinkView) templ.Component {
 				var templ_7745c5c3_Var82 string
 				templ_7745c5c3_Var82, templ_7745c5c3_Err = templruntime.NewAttributeExpression(templ.SafeURL(accountPath(v.Account, "/unlink"))).ResolveURL(ctx)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 456, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/synchistory/views.templ`, Line: 462, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var82)
 				if templ_7745c5c3_Err != nil {

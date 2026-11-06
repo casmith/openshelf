@@ -50,6 +50,8 @@ select a.id, a.public_id, a.provider, a.external_account_id, a.display_name, a.p
        a.status, a.last_error, a.last_synced_at, a.next_sync_at,
        coalesce(r.status::text, '')::text as run_status,
        coalesce(r.warnings, '{}')::text[] as run_warnings,
+       coalesce((select c.counts from sync_runs c where c.account_id = a.id and c.status in ('succeeded', 'partial')
+                 order by c.started_at desc, c.id desc limit 1), '{}')::jsonb as last_counts,
        r.finished_at as run_finished_at
 from connected_accounts a
 left join lateral (
@@ -74,6 +76,7 @@ type ConnectionsListForUserRow struct {
 	NextSyncAt        *time.Time
 	RunStatus         string
 	RunWarnings       []string
+	LastCounts        []byte
 	RunFinishedAt     *time.Time
 }
 
@@ -100,6 +103,7 @@ func (q *Queries) ConnectionsListForUser(ctx context.Context, userID int64) ([]C
 			&i.NextSyncAt,
 			&i.RunStatus,
 			&i.RunWarnings,
+			&i.LastCounts,
 			&i.RunFinishedAt,
 		); err != nil {
 			return nil, err
