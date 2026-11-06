@@ -9,6 +9,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/google/uuid"
 
+	"github.com/casmith/openshelf/internal/achievements"
 	"github.com/casmith/openshelf/internal/auth"
 	"github.com/casmith/openshelf/internal/catalog"
 	"github.com/casmith/openshelf/internal/db"
@@ -17,6 +18,7 @@ import (
 	"github.com/casmith/openshelf/internal/library"
 	"github.com/casmith/openshelf/internal/lists"
 	"github.com/casmith/openshelf/internal/reviews"
+	"github.com/casmith/openshelf/internal/synchistory"
 	"github.com/casmith/openshelf/internal/web"
 )
 
@@ -25,6 +27,8 @@ type panelFunc func(ctx context.Context, d *deps.Deps, viewer db.User, item db.M
 var panels = []panelFunc{
 	library.ItemPanel,
 	experiences.ItemPanel,
+	achievements.ItemPanel,
+	synchistory.ItemPanel,
 	reviews.ItemPanel,
 	lists.ItemPanel,
 }

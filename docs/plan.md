@@ -200,24 +200,102 @@ Each brief lists **Owns** (exclusive paths and routes), **Uses** (read-only cont
 
 ## Wave 2 — v0.2 Steam
 
-### F4 — Sync framework (serial)
-`internal/sync`, migrations `019xx`. Delivers:
-- `connected_accounts` (user, provider, external account ID, display name, encrypted credentials, scopes, status, cursor, last sync).
-- `internal/secrets` (AES-256-GCM using a key derived from `OPENSHELF_SECRET_KEY`, with key rotation support).
-- `sync_runs` and `sync_events` (before/after values, `respected_override`).
-- `import_exclusions` and `external_playtime`.
-- Achievement tables: `achievements`, `achievement_unlocks`, `achievement_awards`, keyed by connected account + provider game ID + achievement ID.
-- An `AccountAdapter` interface (`Capabilities()`, `Link`, `Sync(ctx, account, cursor) (iterator of observations)`, `Unlink`) and a generic sync runner. It's idempotent and resumable, never deletes on disappearance, writes only `*_source` columns (with a test that enforces this), records sync events, and creates imports as private.
-- A River periodic scheduler and a settings page at `/settings/connections` with stub cards per adapter.
+### F4 — Sync framework (serial, done)
+
+**Goal:** the schema, sync contract, runner, jobs, and wiring for linked accounts exist, so S20, S21, and S22 each fill in their own files and never edit wiring or each other's packages.
+
+**Delivered**
+- Migration `01900_sync.sql`: `connected_accounts`, `sync_runs`, `sync_events`, `import_exclusions`, `external_playtime`, `achievements`, `achievement_unlocks`, and the enums `connection_status` and `sync_run_status`. The columns and their semantics are in [data-model.md](data-model.md#v02--sync-f4-migration-01900_syncsql). `achievement_awards` and `match_candidates` are deferred to v0.3.
+- `internal/secrets`: `secrets.New(current, previous string) (*Box, error)`, `(*Box).Encrypt(plaintext []byte) ([]byte, error)`, `Decrypt(ciphertext []byte) ([]byte, error)`, and `NeedsRotation(ciphertext) bool`. AES-256-GCM, with the key derived from `OPENSHELF_SECRET_KEY` by HKDF-SHA256. Ciphertext is `version | key ID | nonce | sealed`, with the header authenticated. `OPENSHELF_SECRET_KEY_PREVIOUS` still decrypts during a rotation. Outside production an empty key falls back to `secrets.DevKey` with a warning. It's available as `d.Secrets`.
+- `internal/sync` (the contract; it doesn't import `deps`, and importers that need the stdlib package alias one of them):
+  ```go
+  type Adapter interface {
+      Provider() string                      // "steam" = connected_accounts.provider
+      Configured() bool                      // admin credentials present
+      Capabilities() Capabilities            // DisplayName, LinkPath, OwnedGames, Playtime, Achievements
+      Sync(ctx context.Context, acct db.ConnectedAccount, cursor []byte, emit Emitter) (newCursor []byte, err error)
+  }
+  type Resolver interface { Resolve(ctx context.Context, g OwnedGame) (*Resolution, error) } // optional on an Adapter
+  type Resolution struct { Provider string; Item *providers.Item }                         // imported via discover.Import
+  type Emitter interface {
+      OwnedGame(ctx context.Context, g OwnedGame) error
+      Achievements(ctx context.Context, s AchievementSet) error
+      Warn(msg string)
+  }
+  type OwnedGame struct { Key, Title string; ExternalIDs []providers.ExternalID; PlaytimeMinutes, Playtime2Weeks *int; LastPlayedAt *time.Time; CoverURL string }
+  type AchievementSet struct { Key string; ExternalIDs []providers.ExternalID; Achievements []Achievement; Unlocks []Unlock }
+  type Achievement struct { Key, Name, Description, IconURL string; Hidden bool; Order int }
+  type Unlock struct { Key string; UnlockedAt *time.Time; Mode string } // "" = sync.ModeStandard
+  ```
+  `sync.Registry` (`NewRegistry`, `All`, `Get(provider)`) is `d.SyncAdapters`, built in `internal/app/sync.go`. The constants `sync.Event*` and `sync.Field*` name the `sync_events.kind` and `field` values.
+- `internal/sync/runner`: `Run(ctx, d, accountID) (Result, error)`, `Enqueue(ctx, d, tx, accountID) error` (pass `nil` for tx outside a transaction), `ScheduleDue(ctx, d)`, `NextSync(now, interval)`, `Workers`, and `PeriodicJobs`. The River jobs are `sync_account` (unique per account while available, pending, running, retryable, or scheduled; 30-minute timeout; 3 attempts) and `sync_schedule` (every 15 minutes and on start, enqueues accounts whose `next_sync_at` has passed). The default interval is 12 h ± 10%, or 1 h after an error. Each observation is applied in its own transaction:
+  - **Resolve the item.** An `external_ids` match comes first. Otherwise, if the adapter implements `Resolver` and returns a `Resolution`, the runner imports it with `discover.Import`. Otherwise it creates a manual game item (title, game details, cover through `images.Enqueue`) and records a `needs_review` event. The runner always attaches the observation's external IDs to the item. A resolver error skips that game with a warning for this run and never creates a duplicate. Creation is serialized per provider key with an advisory lock.
+  - **Skip excluded keys.** An `import_exclusions` hit skips the game and its achievements and records an `excluded_skipped` event.
+  - **Upsert the library entry.** The runner uses the viewer's entry for the item, preferring the edition-less one. It writes only `ownership_source = 'owned'` and `played_source` (set to `true` when playtime is above 0, and never moved back to `false`). A new entry gets only those two columns, which leaves it `private` with `backlog = false`. Changes record `entry_created`, `ownership_source_changed`, or `played_source_changed` events with before and after values. `respected_override` is true when the matching `*_user` column is set and differs. When playtime changes but the user's override still wins, the runner records an `override_respected` event.
+  - **Store source facts.** It upserts `external_playtime` (only when playtime is reported, and `last_played_at` is never cleared). It also upserts `achievements` (definitions are shared, keyed by provider, game key, and achievement key) and `achievement_unlocks` (new rows record `achievement_unlocked`; `unlocked_at` only fills a null).
+  - **Never delete.** Games that disappear are left alone, and missing values never clear stored ones.
+  - **Bookkeeping.** `sync_runs` gets its status (`succeeded`, `partial` when there are warnings or an error after progress, otherwise `failed`), counts, warnings, and error. The account gets its status (`active` or `error`), `last_error`, `last_synced_at`, `next_sync_at`, and cursor. The cursor is replaced only after a run without an adapter error. Disabled accounts are skipped. A missing or unconfigured adapter fails the run.
+- Tests: the runner tests against `synctest.Fake` cover first import, idempotent re-sync, override respected, exclusion, disappearance, partial warnings, adapter errors, the resolver, and achievement refresh. A test-only trigger fails any sync write to user-owned `library_entries` columns, reviews, experiences, lists, or activity. Static tests check that `queries/sync*.sql` never names a user column in a statement that writes `library_entries`, and that sync packages call no other feature's queries.
+- `internal/sync/synctest`: `Fake` (an adapter that emits configured games, sets, and warnings, with an optional `ResolveFunc`) and `Recorder` (an `Emitter` that collects observations, for adapter unit tests).
+- `internal/sync/steam` skeleton: `steam.go` (`Adapter{Client, OpenIDEndpoint, Metadata *providers.Registry}`, `New(cfg)`, `Configured()` when `OPENSHELF_STEAM_API_KEY` is set, `Capabilities`, a `Cursor{Owned, Achievements json.RawMessage}` with one half per file, `OwnedApp`, and a `Sync` that runs `syncOwned` and then `syncAchievements`). `client.go` has `Client{BaseURL, Key, HTTP *providers.HTTP}` and `Get(ctx, iface, method, version, params, out)`; point `BaseURL` at `httptest` in tests. The stubs are `owned.go` (`syncOwned`), `achievements.go` (`syncAchievements`), `openid.go` (`VerifyAssertion`), and `handlers.go` (`Register`).
+- UI and wiring: `internal/connections` serves `GET /settings/connections` (linked accounts with status, last and next sync, last run status and warnings, last error, **Sync now**, and a **History** link; available adapters with a **Link** button to `Capabilities().LinkPath` when configured) and `POST /settings/connections/{id}/sync`. `/settings` links to it. The stubs wired in `routes.go` are `steam.Register`, `achievements.Register`, and `synchistory.Register`. Their panels, `achievements.ItemPanel` and `synchistory.ItemPanel`, sit after `experiences.ItemPanel` on the item page. `achievements.Counts(ctx, d, viewer, itemIDs) (map[int64]Count, error)` is a stub for library cards. The CSP allows `https://*.steamstatic.com` and `https://steamcdn-a.akamaihd.net` images (avatars, achievement icons). `testutil.CreateConnectedAccount(t, pool, userID, provider, externalID)` creates linked accounts in tests.
+
+**Rules for Wave 2 slices**
+- Adapters never touch the database. They only emit, and the runner owns every write. Slice packages may read sync tables in their own queries, but they write only `import_exclusions` and `connected_accounts` (S20 and S22), plus their own private tables.
+- Any user-owned write (reset to source, exclusions, deletes) is a user action in S22's or the library's handlers. It's never done by sync code.
+- The provider item key for Steam is the appid as a decimal string. Its external ID is `steam_app` with URL `https://store.steampowered.com/app/{appid}`.
 
 ### S20 — Steam linking and library import
-OpenID 2.0 assertion verification (signature check via `check_authentication`), binding the SteamID to the logged-in user, multiple accounts per user. Owned games import via `IPlayerService/GetOwnedGames` → `steam_app` external IDs → match to catalog (IGDB cross-reference where available, else create a manual item flagged for review). Sets `ownership_source` and `played_source` (from playtime > 0) and stores playtime and last played. Private-profile states are surfaced honestly.
+- **Owns:** `internal/sync/steam/{owned.go,openid.go,handlers.go,views.templ,resolve.go,*_test.go,testdata/**}` (new files in the package are fine, but not `steam.go`, `client.go`, or `achievements.go`), `internal/providers/igdb/external.go` (new file), `queries/steam.sql` (prefix `Steam`), migrations `020xx`; routes `/connections/steam/*`.
+- **Delivers**
+  - **Linking (OpenID 2.0, not OAuth).** `GET /connections/steam/link` (`RequireUser`) stores a random state in the session and redirects to `https://steamcommunity.com/openid/login` with `openid.ns=http://specs.openid.net/auth/2.0`, `mode=checkid_setup`, `claimed_id` and `identity` set to `http://specs.openid.net/auth/2.0/identifier_select`, `return_to={BaseURL}/connections/steam/callback?state=…`, and `realm={BaseURL}`. It must be a plain link (GET), because CSP `form-action 'self'` blocks a form POST that redirects off-site. `GET /connections/steam/callback` checks the state against the session. It requires `openid.mode=id_res`, `op_endpoint` equal to the Steam endpoint, and `return_to` equal to the URL being served. It verifies the assertion by POSTing every `openid.*` parameter back with `openid.mode=check_authentication` and requiring `is_valid:true`. Then it takes the SteamID64 from `claimed_id` (`^https://steamcommunity.com/openid/id/(\d{17})$`) and rejects a reused `response_nonce`, using a private table that's pruned after a day. `VerifyAssertion` holds the verification logic. A Steam login never signs anyone into OpenShelf. It only binds a SteamID to the user who is already logged in.
+  - **Account creation.** The callback fetches `ISteamUser/GetPlayerSummaries/v2?steamids=` (personaname, profileurl, avatarmedium, communityvisibilitystate). It inserts `connected_accounts` (with `credentials` null) and calls `runner.Enqueue` in the same transaction. A SteamID already linked to another user is refused with a clear message. Re-linking your own account refreshes its profile fields. A user may link several Steam accounts. The account appears on `/settings/connections`.
+  - **Owned games.** `syncOwned` calls `IPlayerService/GetOwnedGames/v1?steamid=&include_appinfo=1&include_played_free_games=1`. Each game becomes a `sync.OwnedGame`: `Key` is the appid, `Title` the name, `ExternalIDs` are `steam_app` plus an `igdb_game` hint when known, and `PlaytimeMinutes` is `playtime_forever`. `Playtime2Weeks` comes from `playtime_2weeks` and `LastPlayedAt` from `rtime_last_played` (when above 0). `CoverURL` is `https://shared.steamstatic.com/store_item_assets/steam/apps/{appid}/library_600x900.jpg`, or the CDN equivalent you verify. It returns `[]OwnedApp`, including `has_community_visible_stats`, for S21.
+  - **Honest partial results.** An empty `response` (game details private) or `communityvisibilitystate != 3` calls `emit.Warn` with a user-facing explanation and emits nothing. It's never treated as "owns zero games". A 401 or 403 with the instance key returns an error, so the account goes to `error` with the message.
+  - **Resolver (Steam to IGDB).** Before emitting, batch-look up IGDB `external_games` for the appids (`where uid = ("620","400") & external_game_source = 1`; older API versions use `category = 1` for Steam), 4 req/s, 500 per query. Do this in `providers/igdb/external.go` as `(*Provider).GamesBySteamApp(ctx, appIDs []string) (map[string]string, error)`. Add the matches as `igdb_game` external IDs so existing IGDB items match directly. Implement `sync.Resolver` in `resolve.go`: when the game has an `igdb_game` hint and IGDB is configured (`a.Metadata.Get("igdb")`), `Fetch` it and return `&sync.Resolution{Provider: "igdb", Item: it}`. Otherwise return `nil, nil`, and the runner creates a manual item flagged `needs_review`. If IGDB isn't configured, skip the lookup.
+- **Acceptance**
+  - A recorded OpenID callback verifies against an `httptest` OP. Tampered `claimed_id` or `return_to`, `is_valid:false`, a replayed nonce, and a bad state are each refused. The account is bound to the logged-in user, a second user can't link the same SteamID, and one user can link two.
+  - With fixture responses, a sync imports owned games. An appid with an IGDB match gets the IGDB item, while others become manual `needs_review` items. Entries are private, `backlog=false`, and `ownership_source=owned`, with `played_source` set from playtime and `external_playtime` stored. Re-running changes nothing.
+  - A private profile records a partial run with a warning and creates no entries. A 403 marks the account `error`.
+  - Cross-user test: user B can't see A's account or trigger A's sync.
+- **Out of scope:** achievements (S21), the history, exclusion, and unlink UI (S22), and the match review queue (S33).
 
 ### S21 — Steam achievements
-Schema definitions (`GetSchemaForGame`) and player achievements (`GetPlayerAchievements`) for owned games with incremental refresh. Achievement panel on the item page; counts on library cards.
+- **Owns:** `internal/sync/steam/achievements.go` (and `achievements_test.go`, `testdata/achievements_*`), `internal/achievements/**`, `queries/achievements.sql` (prefix `Achievements`), migrations `021xx`.
+- **Delivers**
+  - **Achievement sync.** `syncAchievements(ctx, acct, owned, cur, emit)` refreshes games with `HasStats` whose `LastPlayedUnix` changed since the last fetch, plus games never fetched and schemas older than 7 days. Track this in `cur.Achievements` (JSON you define, for example appid to last-played and fetched-at). Cap each run at 200 games so it fits the job timeout; the rest continue next run. Per game:
+    - `ISteamUserStats/GetSchemaForGame/v2?appid=&l=english` (`game.availableGameStats.achievements[]`: `name` is the key, plus `displayName`, `description`, `icon`, `icongray`, and `hidden`; order is the array index).
+    - `ISteamUserStats/GetPlayerAchievements/v1?steamid=&appid=` (`playerstats.achievements[]`: `apiname`, `achieved`, `unlocktime`).
+  - **Emitting.** Emit one `sync.AchievementSet{Key: appid, ExternalIDs: steam_app, Achievements, Unlocks}` per game, where unlocks are the achievements with `achieved == 1`. `UnlockedAt` comes from `unlocktime` when it's above 0. A game with no schema achievements is remembered and skipped.
+  - **Privacy and errors.** `playerstats.success == false` or a 403 ("Profile is not public") calls `Warn` once and stops fetching for this run. It never emits empty unlocks. Other per-game errors warn and continue, and that game is retried next run.
+  - **Item panel.** `achievements.ItemPanel` shows the viewer's progress for the item across their own accounts (filtered by `connected_accounts.user_id` in SQL): "12 / 50" with a progress bar, unlocked achievements with icons and dates, and hidden achievements masked until unlocked. Each row is labelled with its account when the viewer has more than one. The panel is empty when there are no definitions.
+  - **Library counts.** `achievements.Counts` returns the viewer's unlocked and total counts per item in one query. S22 shows them on library cards.
+- **Acceptance**
+  - Fixture sync stores the definitions and the unlocks with timestamps. A later sync with one new unlock adds exactly one unlock and one `achievement_unlocked` event.
+  - An unchanged `rtime_last_played` skips the fetch, which you can verify by counting fixture-server requests.
+  - A private-stats response records a warning and keeps the existing unlocks.
+  - Panel and `Counts` cross-user test: B never sees A's unlocks, even for the same game. `Counts` for 500 items is one query.
+- **Out of scope:** RetroAchievements modes and awards (S32), and inferring played or completion from achievements (never).
 
 ### S22 — Override, history, and exclusion UI
-Source badges ("inferred from Steam") on library and item pages, the *Reset to source* action, a sync history screen per connection (runs and events, "override respected" highlighted), per-item "exclude from sync", and an unlink flow with a retain/remove choice. **Acceptance:** the RFC's Portal 2 test, end to end.
+- **Owns:** `internal/synchistory/**`, `queries/synchistory.sql` (prefix `Synchistory`), migrations `022xx`; routes `GET /settings/connections/{id}/history`, `POST /connections/{id}/unlink` (with a GET confirmation page), `POST /connections/{id}/exclusions`, `DELETE /connections/{id}/exclusions/{key}`, and `synchistory.ItemPanel`. In `internal/library`, S22 may edit **only** `views.templ` (badges and actions in `panelEntry`, the cards and table in `libraryBody`/`entryTable`), `panel.go`, `handlers.go` (new reset-ownership route and exclusion-on-delete), and `queries/library.sql` (adding source columns and achievement-free reads). It must keep the existing `library_test.go` passing and add its tests in a new `library/sources_test.go`.
+- **Delivers**
+  - **Source badges.** When an effective value comes from a source, the library panel and cards show "Owned · from Steam" or "Played · inferred from Steam". When the user's value differs from the source, the panel shows both ("Not played (you) · Steam says played") with a **Reset to source** button. Played reset already exists as `POST /library/{entry_id}/played` with `played=reset`. Add `POST /library/{entry_id}/ownership` with `ownership=reset`, which sets `ownership_user = NULL` only. Library cards show `achievements.Counts` (one query per page).
+  - **Item panel.** `synchistory.ItemPanel` shows, per account of the viewer's that has the item, the playtime (total and last two weeks), last played, and last sync. It has an **Exclude from sync** button, which inserts `import_exclusions` for that account and key and leaves existing data in place. Excluded items show **Include again**.
+  - **History.** The history page for an account lists runs (newest first, keyset pagination) with status, counts, warnings, and error. Each run expands to its events, rendered per `sync.Event*` kind with the item, field, and before/after values. `respected_override` events are highlighted ("Your choice was kept"), and a `needs_review` filter is available. Exclusions are listed with a remove button.
+  - **Deleting entries.** Deleting a library entry whose item has `external_playtime` rows for the viewer's accounts also inserts `import_exclusions` for those keys in the same transaction, so the import stays deleted. Tell the user this in the delete confirmation.
+  - **Unlink.** The confirmation page offers **Keep imported entries** or **Remove imported entries**. Remove deletes the entries recorded in this account's `entry_created` events, unless they have user data (`ownership_user`, `played_user`, `backlog`, notes, tags, an experience, or a review); those are kept and listed. Either way the `connected_accounts` row is deleted, which cascades runs, events, exclusions, playtime, and unlocks. Catalog items are never deleted.
+- **Acceptance**
+  - **The README's Portal 2 test, end to end over HTTP**, with a fixture Steam server (or `synctest.Fake`):
+    1. Import a Steam library that includes Portal 2 with 30 h.
+    2. Mark Portal 2 *Not played* on its item page.
+    3. Sync again, reporting more playtime and new achievements.
+    4. The item page still says *Not played*. The source playtime and achievement count have advanced. The history shows an `override_respected` event for `played` that is highlighted as respected.
+    5. **Reset to source** makes it *Played*.
+  - An excluded game isn't re-imported, and neither is a deleted one.
+  - Unlink with remove deletes untouched imported entries and keeps edited ones. Unlink with keep leaves every entry.
+  - Cross-user test: B can't view A's history, exclude A's items, or unlink A's account (all 404).
+- **Out of scope:** match review (S33) and per-field history for catalog metadata.
 
 ## Wave 3 — v0.3 Retro
 

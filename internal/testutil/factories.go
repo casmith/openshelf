@@ -72,3 +72,11 @@ func CreateList(t testing.TB, pool *pgxpool.Pool, userID int64, name string, vis
 	}
 	return l
 }
+
+// CreateConnectedAccount links an external account (e.g. provider "steam", a SteamID64) to a user.
+func CreateConnectedAccount(t testing.TB, pool *pgxpool.Pool, userID int64, provider, externalID string) db.ConnectedAccount {
+	t.Helper()
+	return one[db.ConnectedAccount](t, pool,
+		`insert into connected_accounts (user_id, provider, external_account_id, display_name)
+		 values ($1, $2, $3, $3) returning *`, userID, provider, externalID)
+}

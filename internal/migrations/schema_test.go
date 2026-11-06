@@ -37,6 +37,52 @@ func TestConstraints(t *testing.T) {
 	}
 }
 
+func TestSyncConstraints(t *testing.T) {
+	s := testutil.NewServer(t)
+	ctx := context.Background()
+	alice := testutil.CreateUser(t, s.Q, "alice")
+	bob := testutil.CreateUser(t, s.Q, "bob")
+	item := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Portal 2")
+	acct := testutil.CreateConnectedAccount(t, s.Pool, alice.ID, "steam", "765")
+
+	mustFail := func(name, sql string, args ...any) {
+		t.Helper()
+		if _, err := s.Pool.Exec(ctx, sql, args...); err == nil {
+			t.Errorf("%s: expected constraint violation", name)
+		}
+	}
+	mustFail("same external account for two users",
+		`insert into connected_accounts (user_id, provider, external_account_id) values ($1, 'steam', '765')`, bob.ID)
+	mustFail("bad status", `update connected_accounts set status = 'paused' where id = $1`, acct.ID)
+	if _, err := s.Pool.Exec(ctx, `insert into import_exclusions (account_id, provider_item_key) values ($1, '620')`, acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	mustFail("duplicate exclusion", `insert into import_exclusions (account_id, provider_item_key) values ($1, '620')`, acct.ID)
+	if _, err := s.Pool.Exec(ctx, `insert into achievements (media_item_id, provider, provider_game_key, provider_achievement_key, name)
+		values ($1, 'steam', '620', 'a1', 'x')`, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	mustFail("duplicate achievement", `insert into achievements (provider, provider_game_key, provider_achievement_key, name)
+		values ('steam', '620', 'a1', 'y')`)
+	if _, err := s.Pool.Exec(ctx, `insert into achievement_unlocks (account_id, achievement_id)
+		select $1, id from achievements`, acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Pool.Exec(ctx, `insert into achievement_unlocks (account_id, achievement_id, mode)
+		select $1, id, 'hardcore' from achievements`, acct.ID); err != nil {
+		t.Errorf("a second mode should be allowed: %v", err)
+	}
+	mustFail("duplicate unlock", `insert into achievement_unlocks (account_id, achievement_id) select $1, id from achievements`, acct.ID)
+
+	if _, err := s.Pool.Exec(ctx, `delete from connected_accounts where id = $1`, acct.ID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := s.Pool.QueryRow(ctx, `select (select count(*) from import_exclusions) + (select count(*) from achievement_unlocks)`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("account delete should cascade source rows: %d %v", n, err)
+	}
+}
+
 func TestPlatformsSeeded(t *testing.T) {
 	s := testutil.NewServer(t)
 	ctx := context.Background()

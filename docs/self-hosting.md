@@ -50,7 +50,8 @@ All configuration is environment variables. `.env.example` lists every one with 
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `OPENSHELF_SECRET_KEY` | none | Required in production, 32+ characters. Encrypts stored account credentials (Steam and other connections, from v0.2); changing it makes them unreadable. |
+| `OPENSHELF_SECRET_KEY` | none | Required in production, 32+ characters. Encrypts stored account credentials (Steam and other connections, from v0.2); to rotate, move the old value to `OPENSHELF_SECRET_KEY_PREVIOUS` and set a new one. |
+| `OPENSHELF_SECRET_KEY_PREVIOUS` | empty | The previous secret key during a rotation. Stored credentials encrypted with it stay readable and are re-encrypted with the current key on their next write. |
 | `OPENSHELF_BASE_URL` | `http://localhost:8080` | The public URL. Used for links and to decide whether cookies are `Secure`. |
 | `OPENSHELF_TRUSTED_PROXIES` | _(empty)_ | Comma-separated CIDRs or IPs of your reverse proxy. `X-Forwarded-For` from these addresses is used to find the real client IP for login rate limiting and logs. Leave empty when nothing sits in front of OpenShelf. |
 | `OPENSHELF_DATABASE_URL` | built from `POSTGRES_PASSWORD` | Set it to use an external Postgres 18 server. |

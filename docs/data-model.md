@@ -1,4 +1,4 @@
-# Data model (v0.1 contract)
+# Data model (v0.1 + v0.2 contract)
 
 This is the schema that Wave 0 (task **F2**) turns into migrations. Every Wave 1 slice codes against it. **Changing this file after Wave 0 needs an orchestrator decision**, because parallel slices depend on it. Slices may add *slice-private* tables in their own migration range (see `docs/plan.md`).
 
@@ -329,6 +329,144 @@ create index activity_events_user_idx on activity_events (user_id, occurred_at d
 
 F2 seeds `platforms` and `platform_aliases` in a migration with a starter list of about 60 entries. It covers modern platforms (PC, Mac, Linux, PS1–PS5, Xbox family, Switch/Switch 2, Steam Deck, iOS, Android) and the retro list from the RFC (Dreamcast, Saturn, Master System, Genesis/Mega Drive, Game Gear, NES, SNES, N64, GameCube, Wii, Game Boy/Color/Advance, DS, 3DS, PSP, Vita, Atari 2600/7800/Jaguar/Lynx, Neo Geo, TurboGrafx-16/PC Engine, Arcade, DOS, Amiga, Commodore 64, ZX Spectrum, MSX). The full registry work is in v0.3.
 
-## Later releases (not in v0.1 migrations)
+## v0.2 — Sync (F4, migration `01900_sync.sql`)
 
-Defined by the v0.2+ foundation tasks: `connected_accounts`, `sync_runs`, `sync_events`, `source_records`, `import_exclusions`, `external_playtime`, `achievements`, `achievement_unlocks`, `achievement_awards`, `match_candidates`, `follows`, and the ActivityPub `actors` / `remote_*` tables.
+Connected accounts and everything a sync observes. ADR 0002 applies throughout:
+
+- Sync writes `library_entries.ownership_source` and `played_source` and nothing else on that table. New entries are created with only those two columns set, so they get the defaults `backlog = false` and `visibility = 'private'`. No other user-owned table (reviews, experiences, lists, activity) is ever written by sync. Imports don't add journal events.
+- `played_source` only moves to `true` (playtime > 0). Zero or missing playtime leaves it unchanged, because a `false` source would hide the experience-derived "played".
+- Playtime, last played, achievement definitions, and unlocks are source facts in source-scoped tables keyed by connected account. They are never shown as personal experiences.
+- Nothing is deleted when it disappears from a provider, and missing values (`null` playtime, failed requests) never clear stored ones.
+- Each sync-originated change is a `sync_events` row. `respected_override = true` means the user's `*_user` value differs from what the source reported, so the effective value didn't change.
+
+```sql
+create type connection_status as enum ('active', 'error', 'disabled');
+create type sync_run_status   as enum ('running', 'succeeded', 'partial', 'failed');
+
+create table connected_accounts (
+  id                  bigint generated always as identity primary key,
+  public_id           uuid not null unique default uuidv7(),
+  user_id             bigint not null references users on delete cascade,
+  provider            text not null,
+  external_account_id text not null,
+  display_name        text not null default '',
+  profile_url         text,
+  avatar_url          text,
+  credentials         bytea,
+  status              connection_status not null default 'active',
+  last_error          text,
+  cursor              bytea,
+  last_synced_at      timestamptz,
+  next_sync_at        timestamptz default now(),
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now(),
+  unique (provider, external_account_id),
+  unique (user_id, provider, external_account_id)
+);
+create index connected_accounts_user_idx on connected_accounts (user_id);
+create index connected_accounts_due_idx on connected_accounts (next_sync_at) where status <> 'disabled';
+
+create table sync_runs (
+  id          bigint generated always as identity primary key,
+  public_id   uuid not null unique default uuidv7(),
+  account_id  bigint not null references connected_accounts on delete cascade,
+  status      sync_run_status not null default 'running',
+  counts      jsonb not null default '{}',
+  warnings    text[] not null default '{}',
+  error       text,
+  started_at  timestamptz not null default now(),
+  finished_at timestamptz
+);
+create index sync_runs_account_idx on sync_runs (account_id, started_at desc);
+
+create table sync_events (
+  id                 bigint generated always as identity primary key,
+  run_id             bigint not null references sync_runs on delete cascade,
+  account_id         bigint not null references connected_accounts on delete cascade,
+  user_id            bigint not null references users on delete cascade,
+  media_item_id      bigint references media_items on delete cascade,
+  library_entry_id   bigint references library_entries on delete set null,
+  provider_item_key  text,
+  kind               text not null,
+  field              text,
+  before             text,
+  after              text,
+  respected_override boolean not null default false,
+  created_at         timestamptz not null default now()
+);
+create index sync_events_user_idx on sync_events (user_id, created_at desc);
+create index sync_events_account_idx on sync_events (account_id, created_at desc);
+create index sync_events_run_idx on sync_events (run_id);
+
+create table import_exclusions (
+  id                bigint generated always as identity primary key,
+  account_id        bigint not null references connected_accounts on delete cascade,
+  provider_item_key text not null,
+  media_item_id     bigint references media_items on delete set null,
+  created_at        timestamptz not null default now(),
+  unique (account_id, provider_item_key)
+);
+
+create table external_playtime (
+  id                bigint generated always as identity primary key,
+  account_id        bigint not null references connected_accounts on delete cascade,
+  media_item_id     bigint not null references media_items on delete cascade,
+  provider_item_key text not null,
+  minutes_total     int not null default 0,
+  minutes_2weeks    int,
+  last_played_at    timestamptz,
+  updated_at        timestamptz not null default now(),
+  unique (account_id, provider_item_key)
+);
+create index external_playtime_item_idx on external_playtime (media_item_id);
+
+create table achievements (
+  id                       bigint generated always as identity primary key,
+  media_item_id            bigint references media_items on delete cascade,
+  provider                 text not null,
+  provider_game_key        text not null,
+  provider_achievement_key text not null,
+  name                     text not null,
+  description              text,
+  icon_url                 text,
+  hidden                   boolean not null default false,
+  display_order            int not null default 0,
+  created_at               timestamptz not null default now(),
+  updated_at               timestamptz not null default now(),
+  unique (provider, provider_game_key, provider_achievement_key)
+);
+create index achievements_item_idx on achievements (media_item_id, display_order);
+
+create table achievement_unlocks (
+  id             bigint generated always as identity primary key,
+  account_id     bigint not null references connected_accounts on delete cascade,
+  achievement_id bigint not null references achievements on delete cascade,
+  unlocked_at    timestamptz,
+  mode           text not null default 'standard',
+  created_at     timestamptz not null default now(),
+  unique (account_id, achievement_id, mode)
+);
+create index achievement_unlocks_achievement_idx on achievement_unlocks (achievement_id);
+```
+
+| Column | Notes |
+| --- | --- |
+| `connected_accounts.provider` | Adapter name (`steam`, later `retroachievements`). `external_account_id` is the provider's account ID (SteamID64). One external account links to at most one OpenShelf user. |
+| `connected_accounts.credentials` | `internal/secrets` ciphertext (AES-256-GCM, key from `OPENSHELF_SECRET_KEY`). Null for Steam, which uses the instance API key. |
+| `connected_accounts.cursor` | Opaque adapter state, replaced only after a run without an adapter error. |
+| `connected_accounts.next_sync_at` | Set to now + 12 h ± 10% after a run, or now + 1 h after an error. `null` or past means due. |
+| `sync_runs.counts` | `runner.Counts` as JSON (`games`, `items_resolved`, `items_created`, `entries_created`, `entries_updated`, `excluded`, `skipped`, `achievement_sets`, `unlocks`). |
+| `sync_runs.warnings` | Partial-result notices from the adapter (private profile, unavailable endpoint). A run with warnings is `partial`. |
+| `sync_events.kind` | `entry_created`, `needs_review` (a manual item was created for an unmatched game), `ownership_source_changed`, `played_source_changed`, `playtime_changed`, `achievement_unlocked`, `override_respected`, `excluded_skipped`. |
+| `sync_events.field/before/after` | Text values: `ownership` (`owned`…), `played` (`true`/`false`), `playtime_minutes`. For `achievement_unlocked`, `field` is the achievement key and `after` its name. For `override_respected`, `before` is the source value and `after` the user's value that was kept. |
+| `import_exclusions.provider_item_key` | Steam appid etc. Excluded keys are skipped (playtime and achievements too), with an `excluded_skipped` event each run. |
+| `achievements.media_item_id` | Nullable so definitions can exist before a game is matched. Definitions are shared per instance; unlocks are per account. |
+| `achievement_unlocks` | A row means unlocked. `unlocked_at` may be null when the provider doesn't report it. `mode` is `standard`, or `hardcore`/`softcore` for RetroAchievements. |
+
+Deleting a connected account cascades its runs, events, exclusions, playtime, and unlocks. Library entries are kept, so an unlink flow that removes imported entries must find them (via `entry_created` events) first.
+
+## Later releases
+
+Deferred to v0.3: `achievement_awards` (RetroAchievements mastery/completion awards, S32) and `match_candidates` (the shared match review queue, S33). Until then, unmatched Steam games become manual items with a `needs_review` sync event. `source_records` (raw provider payloads) is dropped: source tables plus `sync_events` cover what the UI needs.
+
+Later: `follows` (v0.4) and the ActivityPub `actors` / `remote_*` tables (v0.5).
