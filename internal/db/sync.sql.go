@@ -128,6 +128,22 @@ func (q *Queries) SyncDueAccounts(ctx context.Context, arg SyncDueAccountsParams
 	return items, nil
 }
 
+const syncExternalIDOwner = `-- name: SyncExternalIDOwner :one
+select coalesce(media_item_id, 0)::bigint from external_ids where provider = $1 and value = $2
+`
+
+type SyncExternalIDOwnerParams struct {
+	Provider string
+	Value    string
+}
+
+func (q *Queries) SyncExternalIDOwner(ctx context.Context, arg SyncExternalIDOwnerParams) (int64, error) {
+	row := q.db.QueryRow(ctx, syncExternalIDOwner, arg.Provider, arg.Value)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const syncFindCreatorByName = `-- name: SyncFindCreatorByName :one
 select id from creators where lower(name) = lower($1::text) order by id limit 1
 `
@@ -297,6 +313,24 @@ func (q *Queries) SyncGetAccount(ctx context.Context, id int64) (ConnectedAccoun
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const syncGetManualItem = `-- name: SyncGetManualItem :one
+select title, locked_fields from media_items
+where id = $1 and metadata_provider is null and created_by_user_id is null
+`
+
+type SyncGetManualItemRow struct {
+	Title        string
+	LockedFields []string
+}
+
+// An item sync created without a provider match; user-created items have created_by_user_id.
+func (q *Queries) SyncGetManualItem(ctx context.Context, id int64) (SyncGetManualItemRow, error) {
+	row := q.db.QueryRow(ctx, syncGetManualItem, id)
+	var i SyncGetManualItemRow
+	err := row.Scan(&i.Title, &i.LockedFields)
 	return i, err
 }
 
@@ -601,6 +635,22 @@ type SyncSetItemCoverParams struct {
 
 func (q *Queries) SyncSetItemCover(ctx context.Context, arg SyncSetItemCoverParams) error {
 	_, err := q.db.Exec(ctx, syncSetItemCover, arg.ImageID, arg.ID)
+	return err
+}
+
+const syncSetManualTitle = `-- name: SyncSetManualTitle :exec
+update media_items set title = $1, sort_title = $2, updated_at = now()
+where id = $3 and metadata_provider is null and created_by_user_id is null and not ('title' = any(locked_fields))
+`
+
+type SyncSetManualTitleParams struct {
+	Title     string
+	SortTitle string
+	ID        int64
+}
+
+func (q *Queries) SyncSetManualTitle(ctx context.Context, arg SyncSetManualTitleParams) error {
+	_, err := q.db.Exec(ctx, syncSetManualTitle, arg.Title, arg.SortTitle, arg.ID)
 	return err
 }
 

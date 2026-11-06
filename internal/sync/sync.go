@@ -7,6 +7,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/casmith/openshelf/internal/db"
@@ -47,6 +48,10 @@ type Capabilities struct {
 type Resolver interface {
 	Resolve(ctx context.Context, g OwnedItem) (*Resolution, error)
 }
+
+// ErrDeferred is returned by a Resolver that is out of lookup budget for this run.
+// The runner skips the item quietly and schedules the next sync sooner.
+var ErrDeferred = errors.New("sync: lookup deferred to the next run")
 
 // Resolution is a provider item to import via discover.Import (Provider is its registry name).
 type Resolution struct {
@@ -169,6 +174,8 @@ const (
 	EventExcludedSkipped        = "excluded_skipped"
 	EventProgressChanged        = "progress_changed"
 	EventSourceFinished         = "source_finished" // the source reported the item finished
+	EventTitleChanged           = "title_changed"   // a sync-created manual item's title was cleaned up
+	EventItemMatched            = "item_matched"    // a sync-created manual item was matched to a provider
 )
 
 // sync_events.field values.
@@ -178,4 +185,5 @@ const (
 	FieldPlaytime  = "playtime_minutes"
 	FieldProgress  = "progress" // a fraction, e.g. "0.4300"
 	FieldFinished  = "finished" // after is the finish date (YYYY-MM-DD) when known, else "true"
+	FieldTitle     = "title"
 )

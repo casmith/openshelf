@@ -1,6 +1,6 @@
-// Package audiobookshelf syncs listening progress from the instance's
-// Audiobookshelf server. Each user links their own API key; the server URL is
-// admin-configured (OPENSHELF_AUDIOBOOKSHELF_URL), never user-supplied.
+// Package audiobookshelf syncs the user's audiobook library and listening
+// progress from the instance's Audiobookshelf server. Each user links their own
+// API key; the server URL is admin-configured (OPENSHELF_AUDIOBOOKSHELF_URL), never user-supplied.
 package audiobookshelf
 
 import (
@@ -11,9 +11,9 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
-	stdsync "sync"
 	"time"
 
 	"github.com/casmith/openshelf/internal/config"
@@ -28,7 +28,11 @@ const (
 	// ExternalIDProvider is the external_ids namespace for Audiobookshelf library item IDs.
 	ExternalIDProvider = "audiobookshelf_item"
 
-	fetchConcurrency = 4
+	pageSize = 100
+	maxPages = 1000
+	// DefaultLookupBudget caps Open Library resolutions per run (~1 req/s, a few
+	// requests each) so a first sync of a large library fits the job timeout.
+	DefaultLookupBudget = 200
 )
 
 // ErrUnauthorized means Audiobookshelf rejected the API key.
@@ -40,6 +44,15 @@ type Adapter struct {
 	Secrets *secrets.Box
 	// Metadata is the provider registry, for resolving books to Open Library. Set by internal/app.
 	Metadata *providers.Registry
+	// LookupBudget overrides DefaultLookupBudget when positive.
+	LookupBudget int
+}
+
+func (a *Adapter) lookupBudget() int {
+	if a.LookupBudget > 0 {
+		return a.LookupBudget
+	}
+	return DefaultLookupBudget
 }
 
 var (
@@ -75,6 +88,7 @@ type User struct {
 type MediaProgress struct {
 	LibraryItemID string   `json:"libraryItemId"`
 	EpisodeID     *string  `json:"episodeId"`
+	MediaItemType string   `json:"mediaItemType"` // "book" or "podcastEpisode"
 	Duration      float64  `json:"duration"`
 	Progress      float64  `json:"progress"`
 	CurrentTime   float64  `json:"currentTime"`
@@ -88,7 +102,20 @@ func (m MediaProgress) started() bool {
 	return m.Progress > 0 || m.CurrentTime > 0 || m.IsFinished
 }
 
-// LibraryItem is GET /api/items/{id}?expanded=1.
+// Library is an entry of GET /api/libraries.
+type Library struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	MediaType string `json:"mediaType"`
+}
+
+// ItemsPage is GET /api/libraries/{id}/items. Audiobookshelf always returns
+// minified items here: authors, narrators and series are comma-joined strings.
+type ItemsPage struct {
+	Results []LibraryItem `json:"results"`
+	Total   int           `json:"total"`
+}
+
 type LibraryItem struct {
 	ID        string `json:"id"`
 	MediaType string `json:"mediaType"`
@@ -99,21 +126,16 @@ type LibraryItem struct {
 }
 
 type BookMetadata struct {
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle"`
-	Authors  []struct {
-		Name string `json:"name"`
-	} `json:"authors"`
-	Narrators     []string   `json:"narrators"`
+	Title         string     `json:"title"`
+	Subtitle      string     `json:"subtitle"`
+	AuthorName    string     `json:"authorName"`
+	NarratorName  string     `json:"narratorName"`
+	SeriesName    string     `json:"seriesName"`
 	Publisher     string     `json:"publisher"`
 	ISBN          string     `json:"isbn"`
 	ASIN          string     `json:"asin"`
 	PublishedYear flexString `json:"publishedYear"`
-	Series        []struct {
-		Name     string     `json:"name"`
-		Sequence flexString `json:"sequence"`
-	} `json:"series"`
-	Genres []string `json:"genres"`
+	Genres        []string   `json:"genres"`
 }
 
 // flexString accepts a JSON string, number, or null.
@@ -167,8 +189,9 @@ type Cursor struct {
 	LastUpdate int64 `json:"last_update"`
 }
 
-// Sync re-emits every started or finished book each run: progress is cheap to
-// re-apply and the runner is idempotent, so skipped items retry naturally.
+// Sync emits every book in the libraries the key can access, with progress
+// attached where the user has any. The runner is idempotent and matches imported
+// items by their audiobookshelf_item ID, so re-emitting the whole library is cheap.
 func (a *Adapter) Sync(ctx context.Context, acct db.ConnectedAccount, cursor []byte, emit sync.Emitter) ([]byte, error) {
 	var cur Cursor
 	if len(cursor) > 0 {
@@ -186,41 +209,47 @@ func (a *Adapter) Sync(ctx context.Context, acct db.ConnectedAccount, cursor []b
 		return nil, err
 	}
 
-	var todo []MediaProgress
-	seen := map[string]bool{}
+	progress := map[string]MediaProgress{}
 	for _, mp := range me.MediaProgress {
 		if mp.LastUpdate != nil {
 			cur.LastUpdate = max(cur.LastUpdate, int64(*mp.LastUpdate))
 		}
-		if (mp.EpisodeID != nil && *mp.EpisodeID != "") || mp.LibraryItemID == "" || !mp.started() || seen[mp.LibraryItemID] {
+		if (mp.EpisodeID != nil && *mp.EpisodeID != "") || (mp.MediaItemType != "" && mp.MediaItemType != "book") ||
+			mp.LibraryItemID == "" || !mp.started() {
 			continue
 		}
-		seen[mp.LibraryItemID] = true
-		todo = append(todo, mp)
+		progress[mp.LibraryItemID] = mp
 	}
 
-	items, errs := a.fetchItems(ctx, string(key), todo)
-	missing := 0
-	for i, mp := range todo {
-		switch err := errs[i]; {
-		case errors.Is(err, ErrUnauthorized):
-			return nil, err
-		case errors.Is(err, providers.ErrNotFound):
-			missing++
+	libs, err := a.Libraries(ctx, string(key))
+	if err != nil {
+		return nil, err
+	}
+	ctx = WithLookupBudget(ctx, a.lookupBudget())
+	seen := map[string]bool{}
+	for _, lib := range libs {
+		if lib.MediaType != "book" {
 			continue
-		case err != nil:
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
+		}
+		err := a.eachItem(ctx, string(key), lib.ID, func(it LibraryItem) error {
+			if it.ID == "" || it.MediaType != "book" || seen[it.ID] {
+				return nil
 			}
-			emit.Warn(fmt.Sprintf("Couldn't read Audiobookshelf item %s; will retry next sync: %v", mp.LibraryItemID, err))
-			continue
-		}
-		it := items[i]
-		if it.MediaType != "book" {
-			continue
-		}
-		if err := emit.OwnedItem(ctx, toOwnedItem(mp, it)); err != nil {
+			seen[it.ID] = true
+			var mp *MediaProgress
+			if p, ok := progress[it.ID]; ok {
+				mp = &p
+			}
+			return emit.OwnedItem(ctx, toOwnedItem(it, mp))
+		})
+		if err != nil && !errors.Is(err, providers.ErrNotFound) {
 			return nil, err
+		}
+	}
+	missing := 0
+	for id := range progress {
+		if !seen[id] {
+			missing++
 		}
 	}
 	if missing > 0 {
@@ -229,44 +258,59 @@ func (a *Adapter) Sync(ctx context.Context, acct db.ConnectedAccount, cursor []b
 	return json.Marshal(cur)
 }
 
-func (a *Adapter) fetchItems(ctx context.Context, key string, todo []MediaProgress) ([]LibraryItem, []error) {
-	items := make([]LibraryItem, len(todo))
-	errs := make([]error, len(todo))
-	sem := make(chan struct{}, fetchConcurrency)
-	var wg stdsync.WaitGroup
-	for i, mp := range todo {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			errs[i] = a.get(ctx, key, "/api/items/"+url.PathEscape(mp.LibraryItemID)+"?expanded=1", &items[i])
-		}()
+// Libraries returns the libraries key can access.
+func (a *Adapter) Libraries(ctx context.Context, key string) ([]Library, error) {
+	var res struct {
+		Libraries []Library `json:"libraries"`
 	}
-	wg.Wait()
-	return items, errs
+	if err := a.get(ctx, key, "/api/libraries", &res); err != nil {
+		return nil, err
+	}
+	return res.Libraries, nil
 }
 
-func toOwnedItem(mp MediaProgress, it LibraryItem) sync.OwnedItem {
+// eachItem pages through a library oldest first, so items added mid-sync land on later pages.
+func (a *Adapter) eachItem(ctx context.Context, key, libraryID string, fn func(LibraryItem) error) error {
+	seen := 0
+	for page := 0; page < maxPages; page++ {
+		v := url.Values{"limit": {strconv.Itoa(pageSize)}, "page": {strconv.Itoa(page)}, "sort": {"addedAt"}, "minified": {"1"}}
+		var res ItemsPage
+		if err := a.get(ctx, key, "/api/libraries/"+url.PathEscape(libraryID)+"/items?"+v.Encode(), &res); err != nil {
+			return err
+		}
+		for _, it := range res.Results {
+			if err := fn(it); err != nil {
+				return err
+			}
+		}
+		seen += len(res.Results)
+		if len(res.Results) < pageSize || seen >= res.Total {
+			return nil
+		}
+	}
+	return nil
+}
+
+func toOwnedItem(it LibraryItem, mp *MediaProgress) sync.OwnedItem {
 	md := it.Media.Metadata
 	g := sync.OwnedItem{
 		Kind:  db.MediaKindBook,
-		Key:   mp.LibraryItemID,
-		Title: strings.TrimSpace(md.Title),
+		Key:   it.ID,
+		Title: CleanTitle(md.Title),
 		ExternalIDs: []providers.ExternalID{{
-			Provider: ExternalIDProvider, Value: mp.LibraryItemID,
+			Provider: ExternalIDProvider, Value: it.ID,
 		}},
 		Book: &providers.BookDetails{},
 	}
-	for _, au := range md.Authors {
-		g.Credits = append(g.Credits, providers.Credit{Name: strings.TrimSpace(au.Name), Role: db.CreditRoleAuthor})
+	for _, n := range splitNames(md.AuthorName) {
+		g.Credits = append(g.Credits, providers.Credit{Name: n, Role: db.CreditRoleAuthor})
 	}
-	for _, n := range md.Narrators {
-		g.Credits = append(g.Credits, providers.Credit{Name: strings.TrimSpace(n), Role: db.CreditRoleNarrator})
+	for _, n := range splitNames(md.NarratorName) {
+		g.Credits = append(g.Credits, providers.Credit{Name: n, Role: db.CreditRoleNarrator})
 	}
-	if len(md.Series) > 0 {
-		g.Book.SeriesName = strings.TrimSpace(md.Series[0].Name)
-		if f, err := strconv.ParseFloat(strings.TrimSpace(string(md.Series[0].Sequence)), 64); err == nil && f >= 0 && f < 10000 {
+	if name, seq := firstSeries(md.SeriesName); name != "" {
+		g.Book.SeriesName = name
+		if f, err := strconv.ParseFloat(seq, 64); err == nil && f >= 0 && f < 10000 {
 			g.Book.SeriesPosition = &f
 		}
 	}
@@ -274,15 +318,18 @@ func toOwnedItem(mp MediaProgress, it LibraryItem) sync.OwnedItem {
 		g.ReleaseYear = y
 	}
 
-	duration := mp.Duration
-	if duration <= 0 {
-		duration = it.Media.Duration
+	duration := it.Media.Duration
+	if mp != nil && mp.Duration > 0 {
+		duration = mp.Duration
 	}
 	ed := &providers.Edition{Format: db.EditionFormatAudiobook, Publisher: strings.TrimSpace(md.Publisher), ExternalIDs: isbnIDs(md.ISBN)}
 	if duration > 0 {
 		ed.DurationMinutes = ptr(clamp32(math.Round(duration / 60)))
 	}
 	g.Edition = ed
+	if mp == nil {
+		return g
+	}
 
 	p := &sync.Progress{
 		Fraction:       mp.Progress,
@@ -302,6 +349,27 @@ func toOwnedItem(mp MediaProgress, it LibraryItem) sync.OwnedItem {
 	}
 	g.Progress = p
 	return g
+}
+
+func splitNames(s string) []string {
+	var out []string
+	for _, n := range strings.Split(s, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+var seriesRe = regexp.MustCompile(`^(.+?)(?: #([^,]*))?(?:, |$)`)
+
+// firstSeries parses the first entry of a minified seriesName ("Name #1, Other #2").
+func firstSeries(s string) (name, seq string) {
+	m := seriesRe.FindStringSubmatch(strings.TrimSpace(s))
+	if m == nil {
+		return "", ""
+	}
+	return strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
 }
 
 // isbnIDs returns isbn13 and isbn10 external IDs for a valid ISBN; an ISBN-10 also yields its ISBN-13.

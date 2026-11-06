@@ -55,6 +55,18 @@ insert into media_items (kind, title, sort_title, release_year)
 values (@kind, @title, @sort_title, sqlc.narg(release_year)::smallint)
 returning id;
 
+-- name: SyncGetManualItem :one
+-- An item sync created without a provider match; user-created items have created_by_user_id.
+select title, locked_fields from media_items
+where id = @id and metadata_provider is null and created_by_user_id is null;
+
+-- name: SyncSetManualTitle :exec
+update media_items set title = @title, sort_title = @sort_title, updated_at = now()
+where id = @id and metadata_provider is null and created_by_user_id is null and not ('title' = any(locked_fields));
+
+-- name: SyncExternalIDOwner :one
+select coalesce(media_item_id, 0)::bigint from external_ids where provider = @provider and value = @value;
+
 -- name: SyncInsertGameDetails :exec
 insert into game_details (media_item_id) values ($1) on conflict do nothing;
 

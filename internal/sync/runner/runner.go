@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,8 +28,10 @@ import (
 const (
 	DefaultInterval = 12 * time.Hour
 	RetryInterval   = time.Hour
-	maxWarnings     = 50
-	maxErrorLen     = 1000
+	// DeferredInterval brings the next sync forward while a resolver has deferred items.
+	DeferredInterval = 15 * time.Minute
+	maxWarnings      = 50
+	maxErrorLen      = 1000
 )
 
 var ErrAdapterUnavailable = errors.New("sync: adapter is not available or not configured")
@@ -36,6 +39,8 @@ var ErrAdapterUnavailable = errors.New("sync: adapter is not available or not co
 // Counts summarizes a run; stored as sync_runs.counts.
 type Counts struct {
 	Games           int `json:"games"`
+	WithProgress    int `json:"with_progress"`
+	Deferred        int `json:"deferred"`
 	ItemsResolved   int `json:"items_resolved"`
 	ItemsCreated    int `json:"items_created"`
 	EntriesCreated  int `json:"entries_created"`
@@ -83,6 +88,9 @@ func Run(ctx context.Context, d *deps.Deps, accountID int64) (Result, error) {
 		cursor, syncErr = a.Sync(ctx, acct, acct.Cursor, em)
 	}
 
+	if em.counts.Deferred > 0 {
+		em.Warn(fmt.Sprintf("%d %s queued for matching next sync", em.counts.Deferred, kindNoun(em.deferredKind, em.counts.Deferred)))
+	}
 	res := Result{RunID: run.ID, Counts: em.counts, Warnings: em.warnings, Err: syncErr}
 	switch {
 	case syncErr == nil && len(em.warnings) == 0:
@@ -118,6 +126,9 @@ func finish(ctx context.Context, d *deps.Deps, acct db.ConnectedAccount, res Res
 		acctParams.Status = db.ConnectionStatusActive
 		acctParams.Cursor = cursor
 		acctParams.NextSyncAt = NextSync(now, DefaultInterval)
+		if res.Counts.Deferred > 0 {
+			acctParams.NextSyncAt = NextSync(now, DeferredInterval)
+		}
 	} else {
 		acctParams.Status = db.ConnectionStatusError
 		acctParams.NextSyncAt = NextSync(now, RetryInterval)
@@ -150,6 +161,31 @@ type emitter struct {
 	counts   Counts
 	warnings []string
 	applied  int
+
+	deferredKind db.MediaKind
+}
+
+func kindNoun(k db.MediaKind, n int) string {
+	noun := "item"
+	switch k {
+	case db.MediaKindBook:
+		noun = "book"
+	case db.MediaKindGame:
+		noun = "game"
+	}
+	if n != 1 {
+		noun += "s"
+	}
+	return noun
+}
+
+func (e *emitter) deferred(g sync.OwnedItem) {
+	if e.counts.Deferred == 0 {
+		e.deferredKind = g.ItemKind()
+	} else if e.deferredKind != g.ItemKind() {
+		e.deferredKind = ""
+	}
+	e.counts.Deferred++
 }
 
 func (e *emitter) Warn(msg string) {
@@ -210,6 +246,9 @@ func (e *emitter) OwnedItem(ctx context.Context, g sync.OwnedItem) error {
 		return nil
 	}
 	e.counts.Games++
+	if g.Progress.Started() {
+		e.counts.WithProgress++
+	}
 	if ex, err := e.excluded(ctx, g.Key); err != nil {
 		return err
 	} else if ex {
@@ -222,8 +261,17 @@ func (e *emitter) OwnedItem(ctx context.Context, g sync.OwnedItem) error {
 	if err != nil {
 		return err
 	}
-	if !found && e.resolver != nil {
+	var fix *manualFix
+	if found {
+		if fix, err = e.planManualFix(ctx, g, itemID); err != nil {
+			return err
+		}
+	} else if e.resolver != nil {
 		res, err := e.resolver.Resolve(ctx, g)
+		if errors.Is(err, sync.ErrDeferred) {
+			e.deferred(g)
+			return nil
+		}
 		if err == nil && res != nil && res.Item != nil {
 			var item db.MediaItem
 			item, err = discover.Import(ctx, e.d, res.Provider, res.Item, nil)
@@ -243,6 +291,11 @@ func (e *emitter) OwnedItem(ctx context.Context, g sync.OwnedItem) error {
 	}
 
 	err = e.d.WithTx(ctx, func(q *db.Queries, tx pgx.Tx) error {
+		if fix != nil {
+			if err := e.applyManualFix(ctx, q, tx, g, itemID, *fix); err != nil {
+				return err
+			}
+		}
 		var err error
 		itemID, err = e.applyOwned(ctx, q, tx, g, itemID, found)
 		return err
@@ -253,6 +306,97 @@ func (e *emitter) OwnedItem(ctx context.Context, g sync.OwnedItem) error {
 	e.items[g.Key] = itemID
 	e.applied++
 	return nil
+}
+
+// manualFix updates an item sync created without a match whose observed title
+// changed (e.g. an adapter now strips edition suffixes), matching it to a provider
+// item when the resolver now finds one.
+type manualFix struct {
+	oldTitle, title string
+	res             *sync.Resolution
+}
+
+func (e *emitter) planManualFix(ctx context.Context, g sync.OwnedItem, itemID int64) (*manualFix, error) {
+	title := strings.TrimSpace(g.Title)
+	if title == "" {
+		return nil, nil
+	}
+	m, err := e.d.Q.SyncGetManualItem(ctx, itemID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil || m.Title == title || slices.Contains(m.LockedFields, discover.FieldTitle) {
+		return nil, err
+	}
+	fix := &manualFix{oldTitle: m.Title, title: title}
+	if e.resolver == nil {
+		return fix, nil
+	}
+	res, err := e.resolver.Resolve(ctx, g)
+	switch {
+	case errors.Is(err, sync.ErrDeferred):
+		e.deferred(g)
+		return nil, nil
+	case err != nil:
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		e.Warn(fmt.Sprintf("Couldn't match %q (%s); will retry next sync: %v", g.Title, g.Key, err))
+		return nil, nil
+	case res != nil && res.Item != nil && res.Item.Kind == g.ItemKind():
+		fix.res = res
+	}
+	return fix, nil
+}
+
+func (e *emitter) applyManualFix(ctx context.Context, q *db.Queries, tx pgx.Tx, g sync.OwnedItem, itemID int64, fix manualFix) error {
+	key := g.Key
+	ev := db.SyncInsertEventParams{MediaItemID: &itemID, ProviderItemKey: &key, Field: ptr(sync.FieldTitle), Before: &fix.oldTitle}
+	if fix.res != nil {
+		item, ok, err := e.matchManual(ctx, q, tx, itemID, fix.res)
+		if err != nil {
+			return err
+		}
+		if ok {
+			e.counts.ItemsResolved++
+			ev.Kind, ev.After = sync.EventItemMatched, &item.Title
+			return e.event(ctx, q, ev)
+		}
+	}
+	if err := q.SyncSetManualTitle(ctx, db.SyncSetManualTitleParams{ID: itemID, Title: fix.title, SortTitle: catalog.SortTitle(fix.title)}); err != nil {
+		return err
+	}
+	ev.Kind, ev.After = sync.EventTitleChanged, &fix.title
+	return e.event(ctx, q, ev)
+}
+
+// matchManual attaches the resolution's IDs to the existing item and refreshes it
+// from the provider. It declines when the provider item is already another item.
+func (e *emitter) matchManual(ctx context.Context, q *db.Queries, tx pgx.Tx, itemID int64, res *sync.Resolution) (db.MediaItem, bool, error) {
+	for _, x := range res.Item.ExternalIDs {
+		owner, err := q.SyncExternalIDOwner(ctx, db.SyncExternalIDOwnerParams{Provider: x.Provider, Value: x.Value})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil || owner != itemID {
+			return db.MediaItem{}, false, err
+		}
+	}
+	for _, x := range res.Item.ExternalIDs {
+		if x.Provider == "" || x.Value == "" {
+			continue
+		}
+		if err := q.SyncAttachExternalID(ctx, db.SyncAttachExternalIDParams{
+			Provider: x.Provider, Value: x.Value, Url: optString(x.URL), MediaItemID: &itemID,
+		}); err != nil {
+			return db.MediaItem{}, false, err
+		}
+	}
+	item, err := discover.ImportTx(ctx, e.d, q, tx, res.Provider, res.Item, nil)
+	if err != nil {
+		return db.MediaItem{}, false, err
+	}
+	return item, item.ID == itemID, nil
 }
 
 func (e *emitter) applyOwned(ctx context.Context, q *db.Queries, tx pgx.Tx, g sync.OwnedItem, itemID int64, found bool) (int64, error) {

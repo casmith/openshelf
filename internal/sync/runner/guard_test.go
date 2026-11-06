@@ -34,6 +34,12 @@ func TestSyncSQLWritesOnlySourceColumns(t *testing.T) {
 				if forbidden[table] {
 					t.Errorf("%s %s writes %s", f, name, table)
 				}
+				// Catalog fixes touch only items sync created and skip fields an admin locked.
+				if table == "media_items" && strings.HasPrefix(strings.ToLower(m[1]), "update") &&
+					!strings.Contains(body, "cover_image_id is null") &&
+					(!strings.Contains(body, "locked_fields") || !strings.Contains(body, "created_by_user_id is null") || !strings.Contains(body, "metadata_provider is null")) {
+					t.Errorf("%s %s updates media_items without the manual-item and locked_fields guards", f, name)
+				}
 				if table == "library_entries" {
 					if strings.Contains(strings.ToLower(m[1]), "delete") {
 						t.Errorf("%s %s deletes library entries", f, name)

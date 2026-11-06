@@ -3,12 +3,28 @@ package audiobookshelf
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/providers"
 	"github.com/casmith/openshelf/internal/providers/openlibrary"
 	"github.com/casmith/openshelf/internal/sync"
 )
+
+type budgetKey struct{}
+
+// WithLookupBudget limits Resolve calls made with the returned context to n;
+// later calls return sync.ErrDeferred. Without a budget Resolve is unlimited.
+func WithLookupBudget(ctx context.Context, n int) context.Context {
+	b := &atomic.Int64{}
+	b.Store(int64(n))
+	return context.WithValue(ctx, budgetKey{}, b)
+}
+
+func takeLookup(ctx context.Context) bool {
+	b, ok := ctx.Value(budgetKey{}).(*atomic.Int64)
+	return !ok || b.Add(-1) >= 0
+}
 
 // Resolve maps a book to an Open Library work by ISBN, then by exact title and
 // first author. Without a match the runner creates a manual book item.
@@ -23,6 +39,9 @@ func (a *Adapter) Resolve(ctx context.Context, g sync.OwnedItem) (*sync.Resoluti
 	ol, ok := p.(*openlibrary.Provider)
 	if !ok {
 		return nil, nil
+	}
+	if !takeLookup(ctx) {
+		return nil, sync.ErrDeferred
 	}
 	workID, err := a.findWork(ctx, ol, g)
 	if errors.Is(err, providers.ErrNotFound) {
