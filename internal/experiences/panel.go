@@ -107,8 +107,11 @@ func fmtNum(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 func fmtDate(t *time.Time) string { return t.Format("Jan 2, 2006") }
 
 func hintText(h *achievements.FinishHint) string {
-	if h.Basis == achievements.BasisEnding {
+	switch h.Basis {
+	case achievements.BasisEnding:
 		return "From your Steam achievements: ‘" + h.Name + "’ unlocked " + fmtDate(&h.Day)
+	case achievements.BasisLastPlayed:
+		return "From when you last played on Steam (" + fmtDate(&h.Day) + ") — clear it if that's not right."
 	}
 	return "From your last Steam achievement, unlocked " + fmtDate(&h.Day) + " — clear it if that's not right."
 }
