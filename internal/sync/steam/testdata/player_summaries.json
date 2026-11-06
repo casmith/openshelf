@@ -1,0 +1,21 @@
+{
+  "response": {
+    "players": [
+      {
+        "steamid": "76561197960287930",
+        "communityvisibilitystate": 3,
+        "profilestate": 1,
+        "personaname": "Rabscuttle",
+        "profileurl": "https://steamcommunity.com/id/rabscuttle/",
+        "avatar": "https://avatars.steamstatic.com/abc.jpg",
+        "avatarmedium": "https://avatars.steamstatic.com/abc_medium.jpg",
+        "avatarfull": "https://avatars.steamstatic.com/abc_full.jpg",
+        "avatarhash": "abc",
+        "personastate": 0,
+        "primaryclanid": "103582791429521408",
+        "timecreated": 1063407589,
+        "personastateflags": 0
+      }
+    ]
+  }
+}

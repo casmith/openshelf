@@ -1,0 +1,13 @@
+package steam
+
+import "github.com/casmith/openshelf/internal/web/ui"
+
+templ failurePage(p ui.Page, body string) {
+	@ui.Layout(p) {
+		@ui.EmptyState(p.Title, body) {
+			@ui.LinkButton("secondary", "/settings/connections") {
+				Back to connections
+			}
+		}
+	}
+}
