@@ -304,7 +304,7 @@ func (x *achAdapter) Sync(ctx context.Context, acct db.ConnectedAccount, cursor 
 	for _, o := range x.owned {
 		key := strconv.FormatInt(o.AppID, 10)
 		minutes := o.PlaytimeMinutes
-		if err := emit.OwnedGame(ctx, sync.OwnedGame{
+		if err := emit.OwnedItem(ctx, sync.OwnedItem{
 			Key: key, Title: o.Name, PlaytimeMinutes: &minutes,
 			ExternalIDs: []providers.ExternalID{{Provider: steam.ExternalIDProvider, Value: key}},
 		}); err != nil {
@@ -317,7 +317,7 @@ func (x *achAdapter) Sync(ctx context.Context, acct db.ConnectedAccount, cursor 
 	return json.Marshal(cur)
 }
 
-func (x *achAdapter) Resolve(context.Context, sync.OwnedGame) (*sync.Resolution, error) {
+func (x *achAdapter) Resolve(context.Context, sync.OwnedItem) (*sync.Resolution, error) {
 	return nil, nil
 }
 

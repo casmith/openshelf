@@ -123,7 +123,7 @@ func (a *Adapter) syncOwned(ctx context.Context, acct db.ConnectedAccount, cur *
 			continue
 		}
 		key := strconv.FormatInt(g.AppID, 10)
-		og := sync.OwnedGame{
+		og := sync.OwnedItem{
 			Key:         key,
 			Title:       g.Name,
 			ExternalIDs: []providers.ExternalID{{Provider: ExternalIDProvider, Value: key, URL: fmt.Sprintf(storeURLFormat, key)}},
@@ -144,7 +144,7 @@ func (a *Adapter) syncOwned(ctx context.Context, acct db.ConnectedAccount, cur *
 			t := time.Unix(g.RtimeLastPlayed, 0).UTC()
 			og.LastPlayedAt = &t
 		}
-		if err := emit.OwnedGame(ctx, og); err != nil {
+		if err := emit.OwnedItem(ctx, og); err != nil {
 			return nil, err
 		}
 	}

@@ -39,18 +39,50 @@ select exists(select 1 from import_exclusions where account_id = @account_id and
 -- name: SyncFindItemByExternalID :one
 select m.id from external_ids x
 join media_items m on m.id = x.media_item_id
-where x.provider = @provider and x.value = @value;
+where x.provider = @provider and x.value = @value and m.kind = @kind;
+
+-- name: SyncFindItemByEditionExternalID :one
+select m.id from external_ids x
+join editions e on e.id = x.edition_id
+join media_items m on m.id = e.media_item_id
+where x.provider = @provider and x.value = @value and m.kind = @kind;
 
 -- name: SyncPlaytimeItem :one
 select media_item_id from external_playtime where account_id = @account_id and provider_item_key = @key;
 
 -- name: SyncInsertManualItem :one
-insert into media_items (kind, title, sort_title)
-values ('game', @title, @sort_title)
+insert into media_items (kind, title, sort_title, release_year)
+values (@kind, @title, @sort_title, sqlc.narg(release_year)::smallint)
 returning id;
 
 -- name: SyncInsertGameDetails :exec
 insert into game_details (media_item_id) values ($1) on conflict do nothing;
+
+-- name: SyncInsertBookDetails :exec
+insert into book_details (media_item_id, series_name, series_position)
+values (@media_item_id, @series_name, sqlc.narg(series_position)::numeric)
+on conflict do nothing;
+
+-- name: SyncFindCreatorByName :one
+select id from creators where lower(name) = lower(@name::text) order by id limit 1;
+
+-- name: SyncInsertCreator :one
+insert into creators (name, sort_name) values (@name, @sort_name) returning id;
+
+-- name: SyncInsertCredit :exec
+insert into credits (media_item_id, creator_id, role, position)
+values (@media_item_id, @creator_id, @role, @position)
+on conflict do nothing;
+
+-- name: SyncInsertEdition :one
+insert into editions (media_item_id, format, publisher, duration_minutes)
+values (@media_item_id, @format, @publisher, @duration_minutes)
+returning id;
+
+-- name: SyncAttachEditionExternalID :exec
+insert into external_ids (provider, value, url, edition_id)
+values (@provider, @value, @url, @edition_id)
+on conflict (provider, value) do nothing;
 
 -- name: SyncSetItemCover :exec
 update media_items set cover_image_id = @image_id where id = @id and cover_image_id is null;
@@ -89,6 +121,25 @@ set media_item_id = excluded.media_item_id,
     minutes_total = excluded.minutes_total,
     minutes_2weeks = excluded.minutes_2weeks,
     last_played_at = coalesce(excluded.last_played_at, external_playtime.last_played_at),
+    updated_at = now();
+
+-- name: SyncGetProgress :one
+select * from external_progress where account_id = @account_id and provider_item_key = @key for update;
+
+-- name: SyncUpsertProgress :exec
+insert into external_progress (account_id, media_item_id, provider_item_key, fraction, current_seconds,
+                               duration_seconds, finished, started_at, finished_at, last_activity_at)
+values (@account_id, @media_item_id, @key, @fraction, @current_seconds, @duration_seconds, @finished,
+        @started_at, @finished_at, @last_activity_at)
+on conflict (account_id, provider_item_key) do update
+set media_item_id = excluded.media_item_id,
+    fraction = excluded.fraction,
+    current_seconds = coalesce(excluded.current_seconds, external_progress.current_seconds),
+    duration_seconds = coalesce(excluded.duration_seconds, external_progress.duration_seconds),
+    finished = excluded.finished,
+    started_at = coalesce(external_progress.started_at, excluded.started_at),
+    finished_at = coalesce(excluded.finished_at, external_progress.finished_at),
+    last_activity_at = coalesce(excluded.last_activity_at, external_progress.last_activity_at),
     updated_at = now();
 
 -- name: SyncUpsertAchievement :exec

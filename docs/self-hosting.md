@@ -58,6 +58,7 @@ All configuration is environment variables. `.env.example` lists every one with 
 | `OPENSHELF_ENV` | `production` in the image | |
 | `OPENSHELF_AUTO_MIGRATE` | `true` | Applies migrations on startup. |
 | `OPENSHELF_TMDB_TOKEN`, `OPENSHELF_IGDB_CLIENT_ID`, `OPENSHELF_IGDB_CLIENT_SECRET`, `OPENSHELF_STEAM_API_KEY` | empty | Metadata providers, see below. |
+| `OPENSHELF_AUDIOBOOKSHELF_URL` | empty | Your Audiobookshelf server as OpenShelf reaches it, e.g. `http://audiobookshelf.default.svc.cluster.local:13378`. Enables Audiobookshelf linking, see below. |
 | `OPENSHELF_HTTP_PORT` | `8080` | Compose only: host port, or `127.0.0.1:8080` to listen on loopback only. |
 
 ## Behind a reverse proxy
@@ -88,6 +89,7 @@ Open Library (books) works without a key. The others are optional; without a key
 - **TMDB** (films and TV): create an account, then copy the *API Read Access Token* from <https://www.themoviedb.org/settings/api> into `OPENSHELF_TMDB_TOKEN`.
 - **IGDB** (games): register an application at <https://dev.twitch.tv/console/apps> (OAuth redirect `http://localhost` is fine), then set `OPENSHELF_IGDB_CLIENT_ID` and `OPENSHELF_IGDB_CLIENT_SECRET`.
 - **Steam** (library sync, from v0.2): get a key at <https://steamcommunity.com/dev/apikey> and set `OPENSHELF_STEAM_API_KEY`.
+- **Audiobookshelf** (listening progress sync): set `OPENSHELF_AUDIOBOOKSHELF_URL` to your server's address as OpenShelf reaches it (an internal address is fine; users can't change it). Each user then links on *Settings → Connections* with an API key from *Audiobookshelf → Settings → API Keys*. The key is stored encrypted with `OPENSHELF_SECRET_KEY`. Books you've started or finished are imported as owned audiobooks, matched to Open Library by ISBN or by title and author, with progress shown on the item page. Podcasts are ignored.
 
 Restart the app after changing keys: `docker compose up -d`.
 

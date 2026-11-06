@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -173,12 +174,28 @@ func (e *emitter) excluded(ctx context.Context, key string) (bool, error) {
 	return e.d.Q.SyncIsExcluded(ctx, db.SyncIsExcludedParams{AccountID: e.acct.ID, Key: key})
 }
 
-func findItem(ctx context.Context, q *db.Queries, ids []providers.ExternalID) (int64, bool, error) {
-	for _, x := range ids {
+// findItem matches an observation to an item of its kind, first by item-level
+// external IDs, then by edition IDs such as ISBNs.
+func findItem(ctx context.Context, q *db.Queries, g sync.OwnedItem) (int64, bool, error) {
+	kind := g.ItemKind()
+	for _, x := range g.ExternalIDs {
 		if x.Provider == "" || x.Value == "" {
 			continue
 		}
-		id, err := q.SyncFindItemByExternalID(ctx, db.SyncFindItemByExternalIDParams{Provider: x.Provider, Value: x.Value})
+		id, err := q.SyncFindItemByExternalID(ctx, db.SyncFindItemByExternalIDParams{Provider: x.Provider, Value: x.Value, Kind: kind})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		return id, err == nil, err
+	}
+	if g.Edition == nil {
+		return 0, false, nil
+	}
+	for _, x := range g.Edition.ExternalIDs {
+		if x.Provider == "" || x.Value == "" {
+			continue
+		}
+		id, err := q.SyncFindItemByEditionExternalID(ctx, db.SyncFindItemByEditionExternalIDParams{Provider: x.Provider, Value: x.Value, Kind: kind})
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
@@ -187,9 +204,9 @@ func findItem(ctx context.Context, q *db.Queries, ids []providers.ExternalID) (i
 	return 0, false, nil
 }
 
-func (e *emitter) OwnedGame(ctx context.Context, g sync.OwnedGame) error {
+func (e *emitter) OwnedItem(ctx context.Context, g sync.OwnedItem) error {
 	if g.Key == "" {
-		e.Warn("skipped a game without an ID")
+		e.Warn("skipped an item without an ID")
 		return nil
 	}
 	e.counts.Games++
@@ -201,7 +218,7 @@ func (e *emitter) OwnedGame(ctx context.Context, g sync.OwnedGame) error {
 		return e.event(ctx, e.d.Q, db.SyncInsertEventParams{Kind: sync.EventExcludedSkipped, ProviderItemKey: &key})
 	}
 
-	itemID, found, err := findItem(ctx, e.d.Q, g.ExternalIDs)
+	itemID, found, err := findItem(ctx, e.d.Q, g)
 	if err != nil {
 		return err
 	}
@@ -210,7 +227,7 @@ func (e *emitter) OwnedGame(ctx context.Context, g sync.OwnedGame) error {
 		if err == nil && res != nil && res.Item != nil {
 			var item db.MediaItem
 			item, err = discover.Import(ctx, e.d, res.Provider, res.Item, nil)
-			if err == nil && item.Kind == db.MediaKindGame {
+			if err == nil && item.Kind == g.ItemKind() {
 				itemID, found = item.ID, true
 				e.counts.ItemsResolved++
 			}
@@ -238,7 +255,7 @@ func (e *emitter) OwnedGame(ctx context.Context, g sync.OwnedGame) error {
 	return nil
 }
 
-func (e *emitter) applyOwned(ctx context.Context, q *db.Queries, tx pgx.Tx, g sync.OwnedGame, itemID int64, found bool) (int64, error) {
+func (e *emitter) applyOwned(ctx context.Context, q *db.Queries, tx pgx.Tx, g sync.OwnedItem, itemID int64, found bool) (int64, error) {
 	key := g.Key
 	needsReview := false
 	if !found {
@@ -246,7 +263,7 @@ func (e *emitter) applyOwned(ctx context.Context, q *db.Queries, tx pgx.Tx, g sy
 			return 0, err
 		}
 		var err error
-		if itemID, found, err = findItem(ctx, q, g.ExternalIDs); err != nil {
+		if itemID, found, err = findItem(ctx, q, g); err != nil {
 			return 0, err
 		}
 		if !found {
@@ -270,7 +287,7 @@ func (e *emitter) applyOwned(ctx context.Context, q *db.Queries, tx pgx.Tx, g sy
 	base := db.SyncInsertEventParams{MediaItemID: &itemID, ProviderItemKey: &key}
 	owned := db.OwnershipOwned
 	var observedPlayed *bool
-	if g.PlaytimeMinutes != nil && *g.PlaytimeMinutes > 0 {
+	if (g.PlaytimeMinutes != nil && *g.PlaytimeMinutes > 0) || g.Progress.Started() {
 		t := true
 		observedPlayed = &t
 	}
@@ -343,9 +360,13 @@ func (e *emitter) applyOwned(ctx context.Context, q *db.Queries, tx pgx.Tx, g sy
 	if err != nil {
 		return 0, err
 	}
+	progressChanged, err := e.applyProgress(ctx, q, g, itemID, entry.ID)
+	if err != nil {
+		return 0, err
+	}
 
-	// When something new arrived for the game but the effective value is the user's, say so.
-	if !isNew && playtimeChanged {
+	// When something new arrived for the item but the effective value is the user's, say so.
+	if !isNew && (playtimeChanged || progressChanged) {
 		if !playedChanged && entry.PlayedUser != nil && newPlayed != nil && *entry.PlayedUser != *newPlayed {
 			ev := base
 			ev.LibraryEntryID, ev.Kind, ev.Field = &entry.ID, sync.EventOverrideRespected, ptr(sync.FieldPlayed)
@@ -366,17 +387,41 @@ func (e *emitter) applyOwned(ctx context.Context, q *db.Queries, tx pgx.Tx, g sy
 	return itemID, nil
 }
 
-func (e *emitter) createItem(ctx context.Context, q *db.Queries, tx pgx.Tx, g sync.OwnedGame) (int64, error) {
+func (e *emitter) createItem(ctx context.Context, q *db.Queries, tx pgx.Tx, g sync.OwnedItem) (int64, error) {
+	kind := g.ItemKind()
 	title := strings.TrimSpace(g.Title)
 	if title == "" {
-		title = "Unknown game " + g.Key
+		title = "Unknown " + string(kind) + " " + g.Key
 	}
-	id, err := q.SyncInsertManualItem(ctx, db.SyncInsertManualItemParams{Title: title, SortTitle: catalog.SortTitle(title)})
+	p := db.SyncInsertManualItemParams{Kind: kind, Title: title, SortTitle: catalog.SortTitle(title)}
+	if g.ReleaseYear > 0 && g.ReleaseYear < 1<<15 {
+		y := int16(g.ReleaseYear)
+		p.ReleaseYear = &y
+	}
+	id, err := q.SyncInsertManualItem(ctx, p)
 	if err != nil {
 		return 0, err
 	}
-	if err := q.SyncInsertGameDetails(ctx, id); err != nil {
+	switch kind {
+	case db.MediaKindGame:
+		err = q.SyncInsertGameDetails(ctx, id)
+	case db.MediaKindBook:
+		bp := db.SyncInsertBookDetailsParams{MediaItemID: id}
+		if g.Book != nil {
+			bp.SeriesName, bp.SeriesPosition = optString(g.Book.SeriesName), g.Book.SeriesPosition
+		}
+		err = q.SyncInsertBookDetails(ctx, bp)
+	}
+	if err != nil {
 		return 0, err
+	}
+	if err := insertCredits(ctx, q, id, g.Credits); err != nil {
+		return 0, err
+	}
+	if g.Edition != nil {
+		if err := insertEdition(ctx, q, id, *g.Edition); err != nil {
+			return 0, err
+		}
 	}
 	if g.CoverURL != "" {
 		imageID, err := images.Enqueue(ctx, e.d, tx, g.CoverURL)
@@ -391,7 +436,55 @@ func (e *emitter) createItem(ctx context.Context, q *db.Queries, tx pgx.Tx, g sy
 	return id, nil
 }
 
-func (e *emitter) applyPlaytime(ctx context.Context, q *db.Queries, g sync.OwnedGame, itemID, entryID int64) (bool, error) {
+func insertCredits(ctx context.Context, q *db.Queries, itemID int64, credits []providers.Credit) error {
+	pos := map[db.CreditRole]int16{}
+	for _, c := range credits {
+		name := strings.TrimSpace(c.Name)
+		if name == "" || !c.Role.Valid() {
+			continue
+		}
+		creatorID, err := q.SyncFindCreatorByName(ctx, name)
+		if errors.Is(err, pgx.ErrNoRows) {
+			creatorID, err = q.SyncInsertCreator(ctx, db.SyncInsertCreatorParams{Name: name, SortName: name})
+		}
+		if err != nil {
+			return err
+		}
+		if err := q.SyncInsertCredit(ctx, db.SyncInsertCreditParams{
+			MediaItemID: itemID, CreatorID: creatorID, Role: c.Role, Position: pos[c.Role],
+		}); err != nil {
+			return err
+		}
+		pos[c.Role]++
+	}
+	return nil
+}
+
+func insertEdition(ctx context.Context, q *db.Queries, itemID int64, ed providers.Edition) error {
+	var format *db.EditionFormat
+	if ed.Format != "" && ed.Format.Valid() {
+		format = &ed.Format
+	}
+	edID, err := q.SyncInsertEdition(ctx, db.SyncInsertEditionParams{
+		MediaItemID: itemID, Format: format, Publisher: optString(ed.Publisher), DurationMinutes: ed.DurationMinutes,
+	})
+	if err != nil {
+		return err
+	}
+	for _, x := range ed.ExternalIDs {
+		if x.Provider == "" || x.Value == "" {
+			continue
+		}
+		if err := q.SyncAttachEditionExternalID(ctx, db.SyncAttachEditionExternalIDParams{
+			Provider: x.Provider, Value: x.Value, Url: optString(x.URL), EditionID: &edID,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *emitter) applyPlaytime(ctx context.Context, q *db.Queries, g sync.OwnedItem, itemID, entryID int64) (bool, error) {
 	if g.PlaytimeMinutes == nil {
 		return false, nil
 	}
@@ -438,6 +531,96 @@ func (e *emitter) applyPlaytime(ctx context.Context, q *db.Queries, g sync.Owned
 	return true, e.event(ctx, q, ev)
 }
 
+// progressEpsilon ignores float noise when comparing fractions; events store 4 decimals.
+const progressEpsilon = 0.00005
+
+func (e *emitter) applyProgress(ctx context.Context, q *db.Queries, g sync.OwnedItem, itemID, entryID int64) (bool, error) {
+	p := g.Progress
+	if p == nil {
+		return false, nil
+	}
+	fraction := min(max(p.Fraction, 0), 1)
+	if p.Finished {
+		fraction = 1
+	}
+	prev, err := q.SyncGetProgress(ctx, db.SyncGetProgressParams{AccountID: e.acct.ID, Key: g.Key})
+	isNew := errors.Is(err, pgx.ErrNoRows)
+	if err != nil && !isNew {
+		return false, err
+	}
+	next := db.ExternalProgress{
+		MediaItemID: itemID, Fraction: fraction, CurrentSeconds: p.CurrentSeconds, DurationSeconds: p.DurationSeconds,
+		Finished: p.Finished, StartedAt: truncTime(p.StartedAt), FinishedAt: truncTime(p.FinishedAt),
+		LastActivityAt: truncTime(p.LastActivityAt),
+	}
+	if !isNew {
+		next.CurrentSeconds = coalesce(next.CurrentSeconds, prev.CurrentSeconds)
+		next.DurationSeconds = coalesce(next.DurationSeconds, prev.DurationSeconds)
+		next.StartedAt = coalesce(prev.StartedAt, next.StartedAt)
+		next.FinishedAt = coalesce(next.FinishedAt, prev.FinishedAt)
+		next.LastActivityAt = coalesce(next.LastActivityAt, prev.LastActivityAt)
+		if prev.MediaItemID == itemID && math.Abs(prev.Fraction-fraction) < progressEpsilon && prev.Finished == next.Finished &&
+			eqPtr(prev.CurrentSeconds, next.CurrentSeconds) && eqPtr(prev.DurationSeconds, next.DurationSeconds) &&
+			eqTime(prev.StartedAt, next.StartedAt) && eqTime(prev.FinishedAt, next.FinishedAt) &&
+			eqTime(prev.LastActivityAt, next.LastActivityAt) {
+			return false, nil
+		}
+	}
+	if err := q.SyncUpsertProgress(ctx, db.SyncUpsertProgressParams{
+		AccountID: e.acct.ID, MediaItemID: itemID, Key: g.Key, Fraction: next.Fraction,
+		CurrentSeconds: next.CurrentSeconds, DurationSeconds: next.DurationSeconds, Finished: next.Finished,
+		StartedAt: next.StartedAt, FinishedAt: next.FinishedAt, LastActivityAt: next.LastActivityAt,
+	}); err != nil {
+		return false, err
+	}
+
+	key := g.Key
+	base := db.SyncInsertEventParams{MediaItemID: &itemID, LibraryEntryID: &entryID, ProviderItemKey: &key}
+	changed := false
+	if (isNew && fraction > 0) || (!isNew && math.Abs(prev.Fraction-fraction) >= progressEpsilon) {
+		ev := base
+		ev.Kind, ev.Field, ev.After = sync.EventProgressChanged, ptr(sync.FieldProgress), ptr(fractionStr(fraction))
+		if !isNew {
+			ev.Before = ptr(fractionStr(prev.Fraction))
+		}
+		if err := e.event(ctx, q, ev); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	if next.Finished && (isNew || !prev.Finished) {
+		ev := base
+		ev.Kind, ev.Field, ev.After = sync.EventSourceFinished, ptr(sync.FieldFinished), ptr("true")
+		if next.FinishedAt != nil {
+			ev.After = ptr(next.FinishedAt.UTC().Format(time.DateOnly))
+		}
+		if !isNew {
+			ev.Before = ptr("false")
+		}
+		if err := e.event(ctx, q, ev); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
+func fractionStr(f float64) string { return strconv.FormatFloat(f, 'f', 4, 64) }
+
+func truncTime(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	return ptr(t.Truncate(time.Microsecond))
+}
+
+func coalesce[T any](a, b *T) *T {
+	if a != nil {
+		return a
+	}
+	return b
+}
+
 func (e *emitter) Achievements(ctx context.Context, s sync.AchievementSet) error {
 	if s.Key == "" {
 		e.Warn("skipped achievements for a game without an ID")
@@ -455,7 +638,7 @@ func (e *emitter) Achievements(ctx context.Context, s sync.AchievementSet) error
 		case !errors.Is(err, pgx.ErrNoRows):
 			return err
 		default:
-			if itemID, ok, err = findItem(ctx, e.d.Q, s.ExternalIDs); err != nil {
+			if itemID, ok, err = findItem(ctx, e.d.Q, sync.OwnedItem{ExternalIDs: s.ExternalIDs}); err != nil {
 				return err
 			}
 		}

@@ -77,7 +77,7 @@ func New(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts Options) 
 		Providers: newProviders(cfg),
 		Secrets:   box,
 	}
-	d.SyncAdapters = newSyncAdapters(cfg, d.Providers)
+	d.SyncAdapters = newSyncAdapters(cfg, d.Providers, box)
 
 	workers := river.NewWorkers()
 	registerWorkers(workers, d)

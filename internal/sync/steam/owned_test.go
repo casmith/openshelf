@@ -173,6 +173,6 @@ func TestResolve(t *testing.T) {
 	}
 }
 
-func gameWith(ids ...providers.ExternalID) sync.OwnedGame {
-	return sync.OwnedGame{Key: "620", Title: "Portal 2", ExternalIDs: ids}
+func gameWith(ids ...providers.ExternalID) sync.OwnedItem {
+	return sync.OwnedItem{Key: "620", Title: "Portal 2", ExternalIDs: ids}
 }

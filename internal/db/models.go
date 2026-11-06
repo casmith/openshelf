@@ -1108,6 +1108,21 @@ type ExternalPlaytime struct {
 	UpdatedAt       time.Time
 }
 
+type ExternalProgress struct {
+	ID              int64
+	AccountID       int64
+	MediaItemID     int64
+	ProviderItemKey string
+	Fraction        float64
+	CurrentSeconds  *int32
+	DurationSeconds *int32
+	Finished        bool
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	LastActivityAt  *time.Time
+	UpdatedAt       time.Time
+}
+
 type FilmDetail struct {
 	MediaItemID    int64
 	RuntimeMinutes *int32

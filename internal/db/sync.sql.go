@@ -45,6 +45,29 @@ func (q *Queries) SyncAchievementIDs(ctx context.Context, arg SyncAchievementIDs
 	return items, nil
 }
 
+const syncAttachEditionExternalID = `-- name: SyncAttachEditionExternalID :exec
+insert into external_ids (provider, value, url, edition_id)
+values ($1, $2, $3, $4)
+on conflict (provider, value) do nothing
+`
+
+type SyncAttachEditionExternalIDParams struct {
+	Provider  string
+	Value     string
+	Url       *string
+	EditionID *int64
+}
+
+func (q *Queries) SyncAttachEditionExternalID(ctx context.Context, arg SyncAttachEditionExternalIDParams) error {
+	_, err := q.db.Exec(ctx, syncAttachEditionExternalID,
+		arg.Provider,
+		arg.Value,
+		arg.Url,
+		arg.EditionID,
+	)
+	return err
+}
+
 const syncAttachExternalID = `-- name: SyncAttachExternalID :exec
 insert into external_ids (provider, value, url, media_item_id)
 values ($1, $2, $3, $4)
@@ -105,6 +128,17 @@ func (q *Queries) SyncDueAccounts(ctx context.Context, arg SyncDueAccountsParams
 	return items, nil
 }
 
+const syncFindCreatorByName = `-- name: SyncFindCreatorByName :one
+select id from creators where lower(name) = lower($1::text) order by id limit 1
+`
+
+func (q *Queries) SyncFindCreatorByName(ctx context.Context, name string) (int64, error) {
+	row := q.db.QueryRow(ctx, syncFindCreatorByName, name)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const syncFindEntry = `-- name: SyncFindEntry :one
 select id, ownership_user, ownership_source, played_user, played_source
 from library_entries
@@ -140,19 +174,40 @@ func (q *Queries) SyncFindEntry(ctx context.Context, arg SyncFindEntryParams) (S
 	return i, err
 }
 
+const syncFindItemByEditionExternalID = `-- name: SyncFindItemByEditionExternalID :one
+select m.id from external_ids x
+join editions e on e.id = x.edition_id
+join media_items m on m.id = e.media_item_id
+where x.provider = $1 and x.value = $2 and m.kind = $3
+`
+
+type SyncFindItemByEditionExternalIDParams struct {
+	Provider string
+	Value    string
+	Kind     MediaKind
+}
+
+func (q *Queries) SyncFindItemByEditionExternalID(ctx context.Context, arg SyncFindItemByEditionExternalIDParams) (int64, error) {
+	row := q.db.QueryRow(ctx, syncFindItemByEditionExternalID, arg.Provider, arg.Value, arg.Kind)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const syncFindItemByExternalID = `-- name: SyncFindItemByExternalID :one
 select m.id from external_ids x
 join media_items m on m.id = x.media_item_id
-where x.provider = $1 and x.value = $2
+where x.provider = $1 and x.value = $2 and m.kind = $3
 `
 
 type SyncFindItemByExternalIDParams struct {
 	Provider string
 	Value    string
+	Kind     MediaKind
 }
 
 func (q *Queries) SyncFindItemByExternalID(ctx context.Context, arg SyncFindItemByExternalIDParams) (int64, error) {
-	row := q.db.QueryRow(ctx, syncFindItemByExternalID, arg.Provider, arg.Value)
+	row := q.db.QueryRow(ctx, syncFindItemByExternalID, arg.Provider, arg.Value, arg.Kind)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -270,6 +325,116 @@ func (q *Queries) SyncGetPlaytime(ctx context.Context, arg SyncGetPlaytimeParams
 	return i, err
 }
 
+const syncGetProgress = `-- name: SyncGetProgress :one
+select id, account_id, media_item_id, provider_item_key, fraction, current_seconds, duration_seconds, finished, started_at, finished_at, last_activity_at, updated_at from external_progress where account_id = $1 and provider_item_key = $2 for update
+`
+
+type SyncGetProgressParams struct {
+	AccountID int64
+	Key       string
+}
+
+func (q *Queries) SyncGetProgress(ctx context.Context, arg SyncGetProgressParams) (ExternalProgress, error) {
+	row := q.db.QueryRow(ctx, syncGetProgress, arg.AccountID, arg.Key)
+	var i ExternalProgress
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.MediaItemID,
+		&i.ProviderItemKey,
+		&i.Fraction,
+		&i.CurrentSeconds,
+		&i.DurationSeconds,
+		&i.Finished,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.LastActivityAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const syncInsertBookDetails = `-- name: SyncInsertBookDetails :exec
+insert into book_details (media_item_id, series_name, series_position)
+values ($1, $2, $3::numeric)
+on conflict do nothing
+`
+
+type SyncInsertBookDetailsParams struct {
+	MediaItemID    int64
+	SeriesName     *string
+	SeriesPosition *float64
+}
+
+func (q *Queries) SyncInsertBookDetails(ctx context.Context, arg SyncInsertBookDetailsParams) error {
+	_, err := q.db.Exec(ctx, syncInsertBookDetails, arg.MediaItemID, arg.SeriesName, arg.SeriesPosition)
+	return err
+}
+
+const syncInsertCreator = `-- name: SyncInsertCreator :one
+insert into creators (name, sort_name) values ($1, $2) returning id
+`
+
+type SyncInsertCreatorParams struct {
+	Name     string
+	SortName string
+}
+
+func (q *Queries) SyncInsertCreator(ctx context.Context, arg SyncInsertCreatorParams) (int64, error) {
+	row := q.db.QueryRow(ctx, syncInsertCreator, arg.Name, arg.SortName)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const syncInsertCredit = `-- name: SyncInsertCredit :exec
+insert into credits (media_item_id, creator_id, role, position)
+values ($1, $2, $3, $4)
+on conflict do nothing
+`
+
+type SyncInsertCreditParams struct {
+	MediaItemID int64
+	CreatorID   int64
+	Role        CreditRole
+	Position    int16
+}
+
+func (q *Queries) SyncInsertCredit(ctx context.Context, arg SyncInsertCreditParams) error {
+	_, err := q.db.Exec(ctx, syncInsertCredit,
+		arg.MediaItemID,
+		arg.CreatorID,
+		arg.Role,
+		arg.Position,
+	)
+	return err
+}
+
+const syncInsertEdition = `-- name: SyncInsertEdition :one
+insert into editions (media_item_id, format, publisher, duration_minutes)
+values ($1, $2, $3, $4)
+returning id
+`
+
+type SyncInsertEditionParams struct {
+	MediaItemID     int64
+	Format          *EditionFormat
+	Publisher       *string
+	DurationMinutes *int32
+}
+
+func (q *Queries) SyncInsertEdition(ctx context.Context, arg SyncInsertEditionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, syncInsertEdition,
+		arg.MediaItemID,
+		arg.Format,
+		arg.Publisher,
+		arg.DurationMinutes,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const syncInsertEntry = `-- name: SyncInsertEntry :one
 insert into library_entries (user_id, media_item_id, ownership_source, played_source)
 values ($1, $2, $3, $4)
@@ -343,18 +508,25 @@ func (q *Queries) SyncInsertGameDetails(ctx context.Context, mediaItemID int64) 
 }
 
 const syncInsertManualItem = `-- name: SyncInsertManualItem :one
-insert into media_items (kind, title, sort_title)
-values ('game', $1, $2)
+insert into media_items (kind, title, sort_title, release_year)
+values ($1, $2, $3, $4::smallint)
 returning id
 `
 
 type SyncInsertManualItemParams struct {
-	Title     string
-	SortTitle string
+	Kind        MediaKind
+	Title       string
+	SortTitle   string
+	ReleaseYear *int16
 }
 
 func (q *Queries) SyncInsertManualItem(ctx context.Context, arg SyncInsertManualItemParams) (int64, error) {
-	row := q.db.QueryRow(ctx, syncInsertManualItem, arg.Title, arg.SortTitle)
+	row := q.db.QueryRow(ctx, syncInsertManualItem,
+		arg.Kind,
+		arg.Title,
+		arg.SortTitle,
+		arg.ReleaseYear,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -536,6 +708,52 @@ func (q *Queries) SyncUpsertPlaytime(ctx context.Context, arg SyncUpsertPlaytime
 		arg.MinutesTotal,
 		arg.Minutes2weeks,
 		arg.LastPlayedAt,
+	)
+	return err
+}
+
+const syncUpsertProgress = `-- name: SyncUpsertProgress :exec
+insert into external_progress (account_id, media_item_id, provider_item_key, fraction, current_seconds,
+                               duration_seconds, finished, started_at, finished_at, last_activity_at)
+values ($1, $2, $3, $4, $5, $6, $7,
+        $8, $9, $10)
+on conflict (account_id, provider_item_key) do update
+set media_item_id = excluded.media_item_id,
+    fraction = excluded.fraction,
+    current_seconds = coalesce(excluded.current_seconds, external_progress.current_seconds),
+    duration_seconds = coalesce(excluded.duration_seconds, external_progress.duration_seconds),
+    finished = excluded.finished,
+    started_at = coalesce(external_progress.started_at, excluded.started_at),
+    finished_at = coalesce(excluded.finished_at, external_progress.finished_at),
+    last_activity_at = coalesce(excluded.last_activity_at, external_progress.last_activity_at),
+    updated_at = now()
+`
+
+type SyncUpsertProgressParams struct {
+	AccountID       int64
+	MediaItemID     int64
+	Key             string
+	Fraction        float64
+	CurrentSeconds  *int32
+	DurationSeconds *int32
+	Finished        bool
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	LastActivityAt  *time.Time
+}
+
+func (q *Queries) SyncUpsertProgress(ctx context.Context, arg SyncUpsertProgressParams) error {
+	_, err := q.db.Exec(ctx, syncUpsertProgress,
+		arg.AccountID,
+		arg.MediaItemID,
+		arg.Key,
+		arg.Fraction,
+		arg.CurrentSeconds,
+		arg.DurationSeconds,
+		arg.Finished,
+		arg.StartedAt,
+		arg.FinishedAt,
+		arg.LastActivityAt,
 	)
 	return err
 }

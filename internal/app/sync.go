@@ -8,13 +8,16 @@ import (
 	"github.com/casmith/openshelf/internal/providers"
 	"github.com/casmith/openshelf/internal/secrets"
 	"github.com/casmith/openshelf/internal/sync"
+	"github.com/casmith/openshelf/internal/sync/audiobookshelf"
 	"github.com/casmith/openshelf/internal/sync/steam"
 )
 
-func newSyncAdapters(cfg config.Config, metadata *providers.Registry) *sync.Registry {
+func newSyncAdapters(cfg config.Config, metadata *providers.Registry, box *secrets.Box) *sync.Registry {
 	st := steam.New(cfg)
 	st.Metadata = metadata
-	return sync.NewRegistry(st)
+	abs := audiobookshelf.New(cfg, box)
+	abs.Metadata = metadata
+	return sync.NewRegistry(st, abs)
 }
 
 func newSecrets(cfg config.Config, log *slog.Logger) (*secrets.Box, error) {
