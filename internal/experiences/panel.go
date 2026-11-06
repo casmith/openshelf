@@ -164,7 +164,7 @@ func pastVerb(k db.MediaKind) string {
 	case db.MediaKindBook:
 		return "read"
 	case db.MediaKindGame:
-		return "played"
+		return "finished"
 	}
 	return "watched"
 }
