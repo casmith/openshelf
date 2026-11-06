@@ -183,7 +183,8 @@ create table credits (
 -- ADR 0003: the single home of provider identifiers.
 -- `provider` is namespaced by entity type so (provider, value) is globally unique:
 --   openlibrary_work, openlibrary_edition, isbn13, isbn10, tmdb_movie, tmdb_tv,
---   imdb, igdb_game, igdb_platform, steam_app, retroachievements_game, retroachievements_system
+--   imdb, igdb_game, igdb_platform, steam_app, retroachievements_game, retroachievements_system,
+--   audiobookshelf_item
 create table external_ids (
   id            bigint generated always as identity primary key,
   provider      text not null,
@@ -457,13 +458,40 @@ create index achievement_unlocks_achievement_idx on achievement_unlocks (achieve
 | `connected_accounts.next_sync_at` | Set to now + 12 h ± 10% after a run, or now + 1 h after an error. `null` or past means due. |
 | `sync_runs.counts` | `runner.Counts` as JSON (`games`, `items_resolved`, `items_created`, `entries_created`, `entries_updated`, `excluded`, `skipped`, `achievement_sets`, `unlocks`). |
 | `sync_runs.warnings` | Partial-result notices from the adapter (private profile, unavailable endpoint). A run with warnings is `partial`. |
-| `sync_events.kind` | `entry_created`, `needs_review` (a manual item was created for an unmatched game), `ownership_source_changed`, `played_source_changed`, `playtime_changed`, `achievement_unlocked`, `override_respected`, `excluded_skipped`. |
+| `sync_events.kind` | `entry_created`, `needs_review` (a manual item was created for an unmatched game), `ownership_source_changed`, `played_source_changed`, `playtime_changed`, `achievement_unlocked`, `override_respected`, `excluded_skipped`, and (migration 02500) `progress_changed`, `source_finished`. |
 | `sync_events.field/before/after` | Text values: `ownership` (`owned`…), `played` (`true`/`false`), `playtime_minutes`. For `achievement_unlocked`, `field` is the achievement key and `after` its name. For `override_respected`, `before` is the source value and `after` the user's value that was kept. |
 | `import_exclusions.provider_item_key` | Steam appid etc. Excluded keys are skipped (playtime and achievements too), with an `excluded_skipped` event each run. |
 | `achievements.media_item_id` | Nullable so definitions can exist before a game is matched. Definitions are shared per instance; unlocks are per account. |
 | `achievement_unlocks` | A row means unlocked. `unlocked_at` may be null when the provider doesn't report it. `mode` is `standard`, or `hardcore`/`softcore` for RetroAchievements. |
 
 Deleting a connected account cascades its runs, events, exclusions, playtime, and unlocks. Library entries are kept, so an unlink flow that removes imported entries must find them (via `entry_created` events) first.
+
+## External progress (migration `02500_external_progress.sql`)
+
+```sql
+create table external_progress (
+  id                bigint generated always as identity primary key,
+  account_id        bigint not null references connected_accounts on delete cascade,
+  media_item_id     bigint not null references media_items on delete cascade,
+  provider_item_key text not null,
+  fraction          double precision not null default 0,
+  current_seconds   int,
+  duration_seconds  int,
+  finished          boolean not null default false,
+  started_at        timestamptz,
+  finished_at       timestamptz,
+  last_activity_at  timestamptz,
+  updated_at        timestamptz not null default now(),
+  unique (account_id, provider_item_key)
+);
+create index external_progress_item_idx on external_progress (media_item_id);
+```
+
+Source-owned listening progress (Audiobookshelf), written only by the sync runner, like `external_playtime`. `fraction` is 0–1 (1 when finished). `finished` follows the source; `started_at`, `finished_at`, and `last_activity_at` are never cleared by a later observation that lacks them. It's never shown as a personal experience. Progress above 0 sets `played_source = true` on the entry (ADR 0002 rules apply unchanged).
+
+- `sync_events.kind` adds `progress_changed` (`field = 'progress'`, `before`/`after` as fractions such as `0.4300`) and `source_finished` (`field = 'finished'`, `after` is the finish date `YYYY-MM-DD` or `true`).
+- `connected_accounts.provider = 'audiobookshelf'`: `external_account_id` is the Audiobookshelf user ID, `display_name` the username, and `credentials` the encrypted API key. The server URL is instance config (`OPENSHELF_AUDIOBOOKSHELF_URL`).
+- `external_ids` adds `audiobookshelf_item` (item-level, the library item ID; also the provider item key). ISBNs from Audiobookshelf stay edition-level: they match existing editions, and a manual book item gets an audiobook edition carrying them along with `duration_minutes`, authors, and narrators.
 
 ## Time to beat (migration `02400_time_to_beat.sql`)
 

@@ -13,7 +13,7 @@ var _ sync.Resolver = (*Adapter)(nil)
 
 // Resolve imports the IGDB game hinted by syncOwned. Without a hint, or when
 // IGDB isn't configured, the runner creates a manual item for review.
-func (a *Adapter) Resolve(ctx context.Context, g sync.OwnedGame) (*sync.Resolution, error) {
+func (a *Adapter) Resolve(ctx context.Context, g sync.OwnedItem) (*sync.Resolution, error) {
 	p, _, ok := a.igdb()
 	if !ok {
 		return nil, nil

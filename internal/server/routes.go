@@ -23,6 +23,7 @@ import (
 	"github.com/casmith/openshelf/internal/reviews"
 	"github.com/casmith/openshelf/internal/stats"
 	"github.com/casmith/openshelf/internal/suggestions"
+	"github.com/casmith/openshelf/internal/sync/audiobookshelf"
 	"github.com/casmith/openshelf/internal/sync/steam"
 	"github.com/casmith/openshelf/internal/synchistory"
 	"github.com/casmith/openshelf/internal/web"
@@ -46,6 +47,7 @@ func routes(mux *http.ServeMux, d *deps.Deps) {
 	pwa.Register(mux, d)
 	connections.Register(mux, d)
 	steam.Register(mux, d)
+	audiobookshelf.Register(mux, d)
 	achievements.Register(mux, d)
 	synchistory.Register(mux, d)
 	suggestions.Register(mux, d)

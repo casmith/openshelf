@@ -9,7 +9,7 @@ import (
 // Recorder is an Emitter that collects observations, for adapter unit tests.
 // Set Err to make every emit fail (e.g. to check adapters propagate it).
 type Recorder struct {
-	Games    []sync.OwnedGame
+	Games    []sync.OwnedItem
 	Sets     []sync.AchievementSet
 	Warnings []string
 	Err      error
@@ -17,7 +17,7 @@ type Recorder struct {
 
 var _ sync.Emitter = (*Recorder)(nil)
 
-func (r *Recorder) OwnedGame(ctx context.Context, g sync.OwnedGame) error {
+func (r *Recorder) OwnedItem(ctx context.Context, g sync.OwnedItem) error {
 	if r.Err != nil {
 		return r.Err
 	}

@@ -26,6 +26,8 @@ type Config struct {
 	IGDBClientID     string
 	IGDBClientSecret string
 	SteamAPIKey      string
+	// AudiobookshelfURL is the instance's Audiobookshelf server, reached server-to-server.
+	AudiobookshelfURL string
 }
 
 func Load() (Config, error) {
@@ -41,6 +43,7 @@ func Load() (Config, error) {
 		IGDBClientID:      os.Getenv("OPENSHELF_IGDB_CLIENT_ID"),
 		IGDBClientSecret:  os.Getenv("OPENSHELF_IGDB_CLIENT_SECRET"),
 		SteamAPIKey:       os.Getenv("OPENSHELF_STEAM_API_KEY"),
+		AudiobookshelfURL: strings.TrimRight(os.Getenv("OPENSHELF_AUDIOBOOKSHELF_URL"), "/"),
 	}
 	var err error
 	if c.AutoMigrate, err = boolEnv("OPENSHELF_AUTO_MIGRATE", true); err != nil {
@@ -59,6 +62,12 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("OPENSHELF_BASE_URL: invalid URL %q", c.BaseURL)
 	}
 	c.BaseURL = strings.TrimRight(c.BaseURL, "/")
+	if c.AudiobookshelfURL != "" {
+		u, err := url.Parse(c.AudiobookshelfURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return c, fmt.Errorf("OPENSHELF_AUDIOBOOKSHELF_URL: invalid URL %q", c.AudiobookshelfURL)
+		}
+	}
 	if c.IsProduction() && len(c.SecretKey) < 32 {
 		return c, fmt.Errorf("OPENSHELF_SECRET_KEY must be at least 32 characters in production")
 	}

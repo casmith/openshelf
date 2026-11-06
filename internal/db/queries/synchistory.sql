@@ -46,7 +46,8 @@ order by x.created_at desc, x.id desc;
 insert into import_exclusions (account_id, provider_item_key, media_item_id)
 values (@account_id, @key,
         coalesce(sqlc.narg(media_item_id)::bigint,
-                 (select media_item_id from external_playtime where account_id = @account_id and provider_item_key = @key)))
+                 (select media_item_id from external_playtime where account_id = @account_id and provider_item_key = @key),
+                 (select media_item_id from external_progress where account_id = @account_id and provider_item_key = @key)))
 on conflict (account_id, provider_item_key) do nothing;
 
 -- name: SynchistoryInclude :execrows
@@ -60,6 +61,8 @@ select distinct k.account_id, k.provider_item_key, m.id
 from media_items m
 cross join lateral (
   select ep.account_id, ep.provider_item_key from external_playtime ep where ep.media_item_id = m.id
+  union
+  select ep.account_id, ep.provider_item_key from external_progress ep where ep.media_item_id = m.id
   union
   select ev.account_id, ev.provider_item_key from sync_events ev
   where ev.media_item_id = m.id and ev.user_id = @user_id and ev.kind = 'entry_created' and ev.provider_item_key is not null
@@ -88,6 +91,16 @@ cross join lateral (
 where a.user_id = @user_id and ep.media_item_id = @media_item_id
 order by a.provider, a.created_at, ep.provider_item_key;
 
+-- name: SynchistoryItemProgress :many
+select a.public_id as account_public_id, a.provider, a.display_name, a.external_account_id, a.last_synced_at,
+       ep.provider_item_key, ep.fraction, ep.current_seconds, ep.duration_seconds, ep.finished, ep.finished_at,
+       ep.last_activity_at,
+       exists(select 1 from import_exclusions x where x.account_id = a.id and x.provider_item_key = ep.provider_item_key)::boolean as excluded
+from external_progress ep
+join connected_accounts a on a.id = ep.account_id
+where a.user_id = @user_id and ep.media_item_id = @media_item_id
+order by a.provider, a.created_at, ep.provider_item_key;
+
 -- name: SynchistoryUnlinkEntries :many
 -- Entries this account created, and whether they carry user data that unlinking must keep.
 select le.public_id, m.title, m.public_id as item_public_id,
@@ -95,8 +108,10 @@ select le.public_id, m.title, m.public_id as item_public_id,
         or cardinality(le.tags) > 0
         or exists(select 1 from experiences ex where ex.user_id = le.user_id and ex.media_item_id = le.media_item_id)
         or exists(select 1 from reviews r where r.user_id = le.user_id and r.media_item_id = le.media_item_id))::boolean as has_user_data,
-       exists(select 1 from external_playtime ep join connected_accounts o on o.id = ep.account_id
-              where ep.media_item_id = le.media_item_id and o.user_id = le.user_id and o.id <> @account_id)::boolean as other_account
+       (exists(select 1 from external_playtime ep join connected_accounts o on o.id = ep.account_id
+               where ep.media_item_id = le.media_item_id and o.user_id = le.user_id and o.id <> @account_id)
+        or exists(select 1 from external_progress ep join connected_accounts o on o.id = ep.account_id
+                  where ep.media_item_id = le.media_item_id and o.user_id = le.user_id and o.id <> @account_id))::boolean as other_account
 from library_entries le
 join media_items m on m.id = le.media_item_id
 where le.user_id = @user_id

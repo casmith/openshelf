@@ -1,0 +1,26 @@
+package audiobookshelf
+
+import (
+	"github.com/casmith/openshelf/internal/web/form"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+templ linkPage(p ui.Page, f *form.Form) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Link Audiobookshelf", "Import the audiobooks you've started or finished, with your listening progress.") {
+			@ui.LinkButton("ghost", "/settings/connections") {
+				Back to connections
+			}
+		}
+		@ui.Card("max-w-xl") {
+			<form method="post" action={ templ.SafeURL(linkPath) } class="space-y-4" hx-boost="false">
+				@ui.FormErrors(f.Errors)
+				@ui.Field("api_key", "API key", "", f.Error("api_key"), templ.Attributes{"type": "password", "autocomplete": "off", "required": true, "autofocus": true, "spellcheck": "false"})
+				<p class="-mt-2 text-xs text-muted">Create one in Audiobookshelf → Settings → API Keys. It's stored encrypted and only used to read your listening progress.</p>
+				@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+					Link account
+				}
+			</form>
+		}
+	}
+}

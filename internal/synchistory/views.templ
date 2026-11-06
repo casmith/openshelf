@@ -40,6 +40,17 @@ func minutesText(s *string) string {
 	return hours(int32(n))
 }
 
+func percentText(s *string) string {
+	if s == nil {
+		return "none"
+	}
+	f, err := strconv.ParseFloat(*s, 64)
+	if err != nil {
+		return *s
+	}
+	return strconv.Itoa(percent(f)) + "%"
+}
+
 func fieldLabel(f *string) string {
 	if f == nil {
 		return ""
@@ -93,6 +104,15 @@ func eventText(e eventView, provider string) string {
 		return provider + " says " + valueText(e.Field, e.Before) + "; you said " + valueText(e.Field, e.After)
 	case sync.EventExcludedSkipped:
 		return "Skipped: excluded from sync"
+	case sync.EventProgressChanged:
+		return "Progress: " + percentText(e.Before) + " → " + percentText(e.After)
+	case sync.EventSourceFinished:
+		if e.After != nil {
+			if t, err := time.Parse(time.DateOnly, *e.After); err == nil {
+				return "Finished on " + t.Format("Jan 2, 2006") + " per " + provider
+			}
+		}
+		return "Finished per " + provider
 	}
 	return e.Kind
 }
@@ -334,26 +354,38 @@ templ itemPanel(v panelView) {
 								<div class="flex gap-2"><dt class="text-muted">Achievements</dt><dd>{ strconv.Itoa(int(r.Unlocked)) } / { strconv.Itoa(int(r.Total)) }</dd></div>
 							}
 						</dl>
-						<div class="mt-3 flex flex-wrap items-center gap-3 text-sm">
+						@sourceControls(v.Item, r.AccountPublicID.String(), r.ProviderItemKey, r.Excluded)
+					</li>
+				}
+				for _, r := range v.Progress {
+					<li class="rounded-md border border-line p-3" data-source={ r.ProviderItemKey }>
+						<div class="flex flex-wrap items-center gap-2">
+							<span class="font-medium">{ r.ProviderName }</span>
+							<span class="text-xs text-muted">
+								if r.DisplayName != "" {
+									{ r.DisplayName }
+								} else {
+									{ r.ExternalAccountID }
+								}
+							</span>
 							if r.Excluded {
-								<form method="post" action={ templ.SafeURL(sourceIncludeURL(r) + "/delete") } hx-delete={ sourceIncludeURL(r) } class="inline">
-									<input type="hidden" name="next" value={ itemURL(v.Item) }/>
-									@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
-										Include again
-									}
-								</form>
-							} else {
-								<form method="post" action={ templ.SafeURL("/connections/" + r.AccountPublicID.String() + "/exclusions") } hx-confirm="Stop importing this game from this account? What's already imported stays." class="inline">
-									<input type="hidden" name="key" value={ r.ProviderItemKey }/>
-									<input type="hidden" name="item" value={ v.Item.PublicID.String() }/>
-									<input type="hidden" name="next" value={ itemURL(v.Item) }/>
-									@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
-										Exclude from sync
-									}
-								</form>
+								@ui.Badge("Excluded from sync")
 							}
-							<a href={ templ.SafeURL(connectionsURL + "/" + r.AccountPublicID.String() + "/history") } class="text-muted hover:text-fg">History</a>
 						</div>
+						<p class="mt-2 text-sm" data-progress>
+							if r.Finished {
+								{ progressSummary(r, v.Loc) } per { r.ProviderName }
+							} else {
+								{ r.ProviderName } · { progressSummary(r, v.Loc) }
+							}
+						</p>
+						if !r.Finished {
+							<div class="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={ strconv.Itoa(percent(r.Fraction)) }>
+								<div class="h-full bg-accent" style={ progressWidth(r.Fraction) }></div>
+							</div>
+						}
+						<p class="mt-2 text-xs text-muted">Last sync { when(r.LastSyncedAt, v.Loc) }</p>
+						@sourceControls(v.Item, r.AccountPublicID.String(), r.ProviderItemKey, r.Excluded)
 					</li>
 				}
 			</ul>
@@ -361,10 +393,37 @@ templ itemPanel(v panelView) {
 	}
 }
 
+templ sourceControls(item db.MediaItem, accountID, key string, excluded bool) {
+	<div class="mt-3 flex flex-wrap items-center gap-3 text-sm">
+		if excluded {
+			<form method="post" action={ templ.SafeURL(sourceIncludeURL(accountID, key) + "/delete") } hx-delete={ sourceIncludeURL(accountID, key) } class="inline">
+				<input type="hidden" name="next" value={ itemURL(item) }/>
+				@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+					Include again
+				}
+			</form>
+		} else {
+			<form method="post" action={ templ.SafeURL("/connections/" + accountID + "/exclusions") } hx-confirm="Stop importing this from this account? What's already imported stays." class="inline">
+				<input type="hidden" name="key" value={ key }/>
+				<input type="hidden" name="item" value={ item.PublicID.String() }/>
+				<input type="hidden" name="next" value={ itemURL(item) }/>
+				@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+					Exclude from sync
+				}
+			</form>
+		}
+		<a href={ templ.SafeURL(connectionsURL + "/" + accountID + "/history") } class="text-muted hover:text-fg">History</a>
+	</div>
+}
+
+func progressWidth(f float64) templ.SafeCSS {
+	return templ.SafeCSS("width: " + strconv.FormatFloat(min(max(f, 0), 1)*100, 'f', 1, 64) + "%")
+}
+
 func itemURL(item db.MediaItem) string { return "/items/" + item.PublicID.String() }
 
-func sourceIncludeURL(r sourceRow) string {
-	return "/connections/" + r.AccountPublicID.String() + "/exclusions/" + url.PathEscape(r.ProviderItemKey)
+func sourceIncludeURL(accountID, key string) string {
+	return "/connections/" + accountID + "/exclusions/" + url.PathEscape(key)
 }
 
 templ unlinkPage(p ui.Page, v unlinkView) {
@@ -375,7 +434,7 @@ templ unlinkPage(p ui.Page, v unlinkView) {
 			}
 		}
 		@ui.Card("max-w-2xl space-y-4") {
-			<p class="text-sm">Unlinking stops syncing and deletes this account's sync history, exclusions, playtime, and achievement unlocks. Catalog items are never deleted.</p>
+			<p class="text-sm">Unlinking stops syncing and deletes this account's sync history, exclusions, playtime, listening progress, and achievement unlocks. Catalog items are never deleted.</p>
 			<p class="text-sm">
 				This account added { strconv.Itoa(len(v.Remove) + len(v.Keep)) } { plural(len(v.Remove)+len(v.Keep), "entry", "entries") } to your library.
 				if len(v.Remove) > 0 {

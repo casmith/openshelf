@@ -58,6 +58,8 @@ func capsSummary(c adapterView) string {
 	add(c.Caps.OwnedGames, "owned games")
 	add(c.Caps.Playtime, "playtime")
 	add(c.Caps.Achievements, "achievements")
+	add(c.Caps.Audiobooks, "audiobooks you've started")
+	add(c.Caps.Progress, "listening progress")
 	if s == "" {
 		return ""
 	}

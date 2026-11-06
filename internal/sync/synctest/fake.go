@@ -13,12 +13,12 @@ type Fake struct {
 	Name         string // provider; defaults to "fake"
 	Unconfigured bool
 	Caps         sync.Capabilities
-	Games        []sync.OwnedGame
+	Games        []sync.OwnedItem
 	Sets         []sync.AchievementSet
 	Warnings     []string
 	Cursor       []byte
 	Err          error
-	ResolveFunc  func(ctx context.Context, g sync.OwnedGame) (*sync.Resolution, error)
+	ResolveFunc  func(ctx context.Context, g sync.OwnedItem) (*sync.Resolution, error)
 
 	Calls      int
 	LastCursor []byte // the cursor passed to the most recent Sync
@@ -52,7 +52,7 @@ func (f *Fake) Sync(ctx context.Context, acct db.ConnectedAccount, cursor []byte
 		emit.Warn(w)
 	}
 	for _, g := range f.Games {
-		if err := emit.OwnedGame(ctx, g); err != nil {
+		if err := emit.OwnedItem(ctx, g); err != nil {
 			return nil, err
 		}
 	}
@@ -67,7 +67,7 @@ func (f *Fake) Sync(ctx context.Context, acct db.ConnectedAccount, cursor []byte
 	return f.Cursor, nil
 }
 
-func (f *Fake) Resolve(ctx context.Context, g sync.OwnedGame) (*sync.Resolution, error) {
+func (f *Fake) Resolve(ctx context.Context, g sync.OwnedItem) (*sync.Resolution, error) {
 	if f.ResolveFunc == nil {
 		return nil, nil
 	}
