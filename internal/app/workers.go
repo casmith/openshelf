@@ -9,6 +9,7 @@ import (
 	"github.com/casmith/openshelf/internal/discover"
 	"github.com/casmith/openshelf/internal/exchange"
 	"github.com/casmith/openshelf/internal/images"
+	"github.com/casmith/openshelf/internal/sync/runner"
 )
 
 func registerWorkers(w *river.Workers, d *deps.Deps) {
@@ -16,11 +17,13 @@ func registerWorkers(w *river.Workers, d *deps.Deps) {
 	images.Workers(w, d)
 	discover.Workers(w, d)
 	exchange.Workers(w, d)
+	runner.Workers(w, d)
 }
 
 func periodicJobs(d *deps.Deps) []*river.PeriodicJob {
 	var jobs []*river.PeriodicJob
 	jobs = append(jobs, discover.PeriodicJobs(d)...)
+	jobs = append(jobs, runner.PeriodicJobs(d)...)
 	return jobs
 }
 

@@ -163,6 +163,14 @@ templ settingsPage(p ui.Page, s settingsData) {
 				</form>
 			}
 			@ui.Card("") {
+				<h2 id="connections" class="mb-2 font-semibold">Connections</h2>
+				<p class="mb-4 text-sm text-muted">Link Steam and other services to import your games, playtime, and achievements.</p>
+				@ui.LinkButton("secondary", "/settings/connections") {
+					@ui.Icon("settings", "h-4 w-4")
+					Manage connections
+				}
+			}
+			@ui.Card("") {
 				<h2 id="data" class="mb-2 font-semibold">Your data</h2>
 				<p class="mb-4 text-sm text-muted">Download everything you've tracked, or bring in data from a file.</p>
 				<div class="flex flex-wrap gap-2">

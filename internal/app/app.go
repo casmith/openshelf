@@ -54,6 +54,10 @@ func OpenPool(ctx context.Context, cfg config.Config) (*pgxpool.Pool, error) {
 
 // New wires dependencies around an existing pool. The caller owns the pool.
 func New(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts Options) (*App, error) {
+	box, err := newSecrets(cfg, log)
+	if err != nil {
+		return nil, err
+	}
 	sm := scs.New()
 	sm.Store = pgxstore.NewWithCleanupInterval(pool, opts.SessionCleanup)
 	sm.Lifetime = 30 * 24 * time.Hour
@@ -71,7 +75,9 @@ func New(cfg config.Config, pool *pgxpool.Pool, log *slog.Logger, opts Options) 
 		Log:       log,
 		Now:       time.Now,
 		Providers: newProviders(cfg),
+		Secrets:   box,
 	}
+	d.SyncAdapters = newSyncAdapters(cfg, d.Providers)
 
 	workers := river.NewWorkers()
 	registerWorkers(workers, d)

@@ -16,7 +16,9 @@ type Config struct {
 	BaseURL     string
 	DataDir     string
 	SecretKey   string
-	AutoMigrate bool
+	// SecretKeyPrevious still decrypts stored secrets while rotating to a new SecretKey.
+	SecretKeyPrevious string
+	AutoMigrate       bool
 	// TrustedProxies may set X-Forwarded-For (e.g. the ingress or gateway network).
 	TrustedProxies []netip.Prefix
 
@@ -28,16 +30,17 @@ type Config struct {
 
 func Load() (Config, error) {
 	c := Config{
-		Env:              env("OPENSHELF_ENV", "development"),
-		DatabaseURL:      env("OPENSHELF_DATABASE_URL", "postgres://openshelf:openshelf@localhost:5433/openshelf?sslmode=disable"),
-		Listen:           env("OPENSHELF_LISTEN", ":8080"),
-		BaseURL:          env("OPENSHELF_BASE_URL", "http://localhost:8080"),
-		DataDir:          env("OPENSHELF_DATA_DIR", "./data"),
-		SecretKey:        os.Getenv("OPENSHELF_SECRET_KEY"),
-		TMDBToken:        os.Getenv("OPENSHELF_TMDB_TOKEN"),
-		IGDBClientID:     os.Getenv("OPENSHELF_IGDB_CLIENT_ID"),
-		IGDBClientSecret: os.Getenv("OPENSHELF_IGDB_CLIENT_SECRET"),
-		SteamAPIKey:      os.Getenv("OPENSHELF_STEAM_API_KEY"),
+		Env:               env("OPENSHELF_ENV", "development"),
+		DatabaseURL:       env("OPENSHELF_DATABASE_URL", "postgres://openshelf:openshelf@localhost:5433/openshelf?sslmode=disable"),
+		Listen:            env("OPENSHELF_LISTEN", ":8080"),
+		BaseURL:           env("OPENSHELF_BASE_URL", "http://localhost:8080"),
+		DataDir:           env("OPENSHELF_DATA_DIR", "./data"),
+		SecretKey:         os.Getenv("OPENSHELF_SECRET_KEY"),
+		SecretKeyPrevious: os.Getenv("OPENSHELF_SECRET_KEY_PREVIOUS"),
+		TMDBToken:         os.Getenv("OPENSHELF_TMDB_TOKEN"),
+		IGDBClientID:      os.Getenv("OPENSHELF_IGDB_CLIENT_ID"),
+		IGDBClientSecret:  os.Getenv("OPENSHELF_IGDB_CLIENT_SECRET"),
+		SteamAPIKey:       os.Getenv("OPENSHELF_STEAM_API_KEY"),
 	}
 	var err error
 	if c.AutoMigrate, err = boolEnv("OPENSHELF_AUTO_MIGRATE", true); err != nil {

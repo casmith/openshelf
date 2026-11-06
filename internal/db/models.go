@@ -94,6 +94,67 @@ func AllActivityVerbValues() []ActivityVerb {
 	}
 }
 
+type ConnectionStatus string
+
+const (
+	ConnectionStatusActive   ConnectionStatus = "active"
+	ConnectionStatusError    ConnectionStatus = "error"
+	ConnectionStatusDisabled ConnectionStatus = "disabled"
+)
+
+func (e *ConnectionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ConnectionStatus(s)
+	case string:
+		*e = ConnectionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ConnectionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullConnectionStatus struct {
+	ConnectionStatus ConnectionStatus
+	Valid            bool // Valid is true if ConnectionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullConnectionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ConnectionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ConnectionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullConnectionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ConnectionStatus), nil
+}
+
+func (e ConnectionStatus) Valid() bool {
+	switch e {
+	case ConnectionStatusActive,
+		ConnectionStatusError,
+		ConnectionStatusDisabled:
+		return true
+	}
+	return false
+}
+
+func AllConnectionStatusValues() []ConnectionStatus {
+	return []ConnectionStatus{
+		ConnectionStatusActive,
+		ConnectionStatusError,
+		ConnectionStatusDisabled,
+	}
+}
+
 type CreditRole string
 
 const (
@@ -721,6 +782,70 @@ func AllRatingDisplayValues() []RatingDisplay {
 	}
 }
 
+type SyncRunStatus string
+
+const (
+	SyncRunStatusRunning   SyncRunStatus = "running"
+	SyncRunStatusSucceeded SyncRunStatus = "succeeded"
+	SyncRunStatusPartial   SyncRunStatus = "partial"
+	SyncRunStatusFailed    SyncRunStatus = "failed"
+)
+
+func (e *SyncRunStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SyncRunStatus(s)
+	case string:
+		*e = SyncRunStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SyncRunStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSyncRunStatus struct {
+	SyncRunStatus SyncRunStatus
+	Valid         bool // Valid is true if SyncRunStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSyncRunStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SyncRunStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SyncRunStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSyncRunStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SyncRunStatus), nil
+}
+
+func (e SyncRunStatus) Valid() bool {
+	switch e {
+	case SyncRunStatusRunning,
+		SyncRunStatusSucceeded,
+		SyncRunStatusPartial,
+		SyncRunStatusFailed:
+		return true
+	}
+	return false
+}
+
+func AllSyncRunStatusValues() []SyncRunStatus {
+	return []SyncRunStatus{
+		SyncRunStatusRunning,
+		SyncRunStatusSucceeded,
+		SyncRunStatusPartial,
+		SyncRunStatusFailed,
+	}
+}
+
 type UserRole string
 
 const (
@@ -840,6 +965,30 @@ func AllVisibilityValues() []Visibility {
 	}
 }
 
+type Achievement struct {
+	ID                     int64
+	MediaItemID            *int64
+	Provider               string
+	ProviderGameKey        string
+	ProviderAchievementKey string
+	Name                   string
+	Description            *string
+	IconUrl                *string
+	Hidden                 bool
+	DisplayOrder           int32
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+type AchievementUnlock struct {
+	ID            int64
+	AccountID     int64
+	AchievementID int64
+	UnlockedAt    *time.Time
+	Mode          string
+	CreatedAt     time.Time
+}
+
 type ActivityEvent struct {
 	ID             int64
 	PublicID       uuid.UUID
@@ -859,6 +1008,25 @@ type BookDetail struct {
 	MediaItemID    int64
 	SeriesName     *string
 	SeriesPosition *float64
+}
+
+type ConnectedAccount struct {
+	ID                int64
+	PublicID          uuid.UUID
+	UserID            int64
+	Provider          string
+	ExternalAccountID string
+	DisplayName       string
+	ProfileUrl        *string
+	AvatarUrl         *string
+	Credentials       []byte
+	Status            ConnectionStatus
+	LastError         *string
+	Cursor            []byte
+	LastSyncedAt      *time.Time
+	NextSyncAt        *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 type Creator struct {
@@ -929,6 +1097,17 @@ type ExternalID struct {
 	LastSeenAt  time.Time
 }
 
+type ExternalPlaytime struct {
+	ID              int64
+	AccountID       int64
+	MediaItemID     int64
+	ProviderItemKey string
+	MinutesTotal    int32
+	Minutes2weeks   *int32
+	LastPlayedAt    *time.Time
+	UpdatedAt       time.Time
+}
+
 type FilmDetail struct {
 	MediaItemID    int64
 	RuntimeMinutes *int32
@@ -950,6 +1129,14 @@ type Image struct {
 	Error       *string
 	FetchedAt   *time.Time
 	CreatedAt   time.Time
+}
+
+type ImportExclusion struct {
+	ID              int64
+	AccountID       int64
+	ProviderItemKey string
+	MediaItemID     *int64
+	CreatedAt       time.Time
 }
 
 type ImportJob struct {
@@ -1083,6 +1270,34 @@ type ShowDetail struct {
 	Status       *string
 	SeasonCount  *int32
 	EpisodeCount *int32
+}
+
+type SyncEvent struct {
+	ID                int64
+	RunID             int64
+	AccountID         int64
+	UserID            int64
+	MediaItemID       *int64
+	LibraryEntryID    *int64
+	ProviderItemKey   *string
+	Kind              string
+	Field             *string
+	Before            *string
+	After             *string
+	RespectedOverride bool
+	CreatedAt         time.Time
+}
+
+type SyncRun struct {
+	ID         int64
+	PublicID   uuid.UUID
+	AccountID  int64
+	Status     SyncRunStatus
+	Counts     []byte
+	Warnings   []string
+	Error      *string
+	StartedAt  time.Time
+	FinishedAt *time.Time
 }
 
 type User struct {

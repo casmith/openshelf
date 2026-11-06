@@ -4,7 +4,9 @@ import (
 	"net/http"
 
 	"github.com/casmith/openshelf/internal/accounts"
+	"github.com/casmith/openshelf/internal/achievements"
 	"github.com/casmith/openshelf/internal/catalog"
+	"github.com/casmith/openshelf/internal/connections"
 	"github.com/casmith/openshelf/internal/dashboard"
 	"github.com/casmith/openshelf/internal/deps"
 	"github.com/casmith/openshelf/internal/discover"
@@ -20,6 +22,8 @@ import (
 	"github.com/casmith/openshelf/internal/pwa"
 	"github.com/casmith/openshelf/internal/reviews"
 	"github.com/casmith/openshelf/internal/stats"
+	"github.com/casmith/openshelf/internal/sync/steam"
+	"github.com/casmith/openshelf/internal/synchistory"
 	"github.com/casmith/openshelf/internal/web"
 )
 
@@ -39,6 +43,10 @@ func routes(mux *http.ServeMux, d *deps.Deps) {
 	discover.Register(mux, d)
 	images.Register(mux, d)
 	pwa.Register(mux, d)
+	connections.Register(mux, d)
+	steam.Register(mux, d)
+	achievements.Register(mux, d)
+	synchistory.Register(mux, d)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if name, ok := profile.Username(r.URL.Path); ok && (r.Method == http.MethodGet || r.Method == http.MethodHead) {

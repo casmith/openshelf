@@ -1,0 +1,156 @@
+package connections
+
+import (
+	"time"
+
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+func accountURL(a accountView, suffix string) string {
+	return "/settings/connections/" + a.PublicID.String() + suffix
+}
+
+func when(t *time.Time, loc *time.Location) string {
+	if t == nil {
+		return "Never"
+	}
+	return t.In(loc).Format("Jan 2, 2006 15:04")
+}
+
+func statusLabel(s db.ConnectionStatus) string {
+	switch s {
+	case db.ConnectionStatusActive:
+		return "Active"
+	case db.ConnectionStatusError:
+		return "Error"
+	case db.ConnectionStatusDisabled:
+		return "Disabled"
+	}
+	return string(s)
+}
+
+func runLabel(s string) string {
+	switch s {
+	case string(db.SyncRunStatusRunning):
+		return "Syncing"
+	case string(db.SyncRunStatusSucceeded):
+		return "Last sync succeeded"
+	case string(db.SyncRunStatusPartial):
+		return "Last sync was partial"
+	case string(db.SyncRunStatusFailed):
+		return "Last sync failed"
+	}
+	return ""
+}
+
+func capsSummary(c adapterView) string {
+	s := ""
+	add := func(on bool, what string) {
+		if !on {
+			return
+		}
+		if s != "" {
+			s += ", "
+		}
+		s += what
+	}
+	add(c.Caps.OwnedGames, "owned games")
+	add(c.Caps.Playtime, "playtime")
+	add(c.Caps.Achievements, "achievements")
+	if s == "" {
+		return ""
+	}
+	return "Imports " + s + "."
+}
+
+templ page(p ui.Page, data pageData) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Connections", "Link accounts on other services to import what you own and play. Imported data stays private, and your own choices always win.") {
+			@ui.LinkButton("ghost", "/settings") {
+				Back to settings
+			}
+		}
+		<div class="max-w-3xl space-y-6">
+			<section aria-labelledby="linked" class="space-y-3">
+				<h2 id="linked" class="font-semibold">Linked accounts</h2>
+				if len(data.Accounts) == 0 {
+					@ui.EmptyState("No linked accounts", "Link an account below to start importing.")
+				}
+				for _, a := range data.Accounts {
+					@accountCard(a, data.Loc)
+				}
+			</section>
+			<section aria-labelledby="available" class="space-y-3">
+				<h2 id="available" class="font-semibold">Available services</h2>
+				for _, ad := range data.Adapters {
+					@ui.Card("flex flex-wrap items-center justify-between gap-4") {
+						<div>
+							<p class="font-medium">{ ad.Caps.DisplayName }</p>
+							<p class="text-sm text-muted">{ capsSummary(ad) }</p>
+							if !ad.Configured {
+								<p class="mt-1 text-sm text-muted">Not available yet: an administrator needs to configure it.</p>
+							}
+						</div>
+						if ad.Configured && ad.Caps.LinkPath != "" {
+							@ui.LinkButton("primary", ad.Caps.LinkPath) {
+								@ui.Icon("plus", "h-4 w-4")
+								{ "Link " + ad.Caps.DisplayName + " account" }
+							}
+						}
+					}
+				}
+			</section>
+		</div>
+	}
+}
+
+templ accountCard(a accountView, loc *time.Location) {
+	@ui.Card("space-y-3") {
+		<div data-account={ a.PublicID.String() } class="flex flex-wrap items-start justify-between gap-4">
+			<div class="flex items-center gap-3">
+				if a.AvatarUrl != nil {
+					<img src={ *a.AvatarUrl } alt="" class="h-10 w-10 rounded-full" loading="lazy" referrerpolicy="no-referrer"/>
+				}
+				<div>
+					<p class="font-medium">
+						if a.DisplayName != "" {
+							{ a.DisplayName }
+						} else {
+							{ a.ExternalAccountID }
+						}
+					</p>
+					<p class="text-xs text-muted">{ a.ProviderName } · { a.ExternalAccountID }</p>
+				</div>
+				@ui.Badge(statusLabel(a.Status))
+			</div>
+			<div class="flex flex-wrap gap-2">
+				<form method="post" action={ templ.SafeURL(accountURL(a, "/sync")) } hx-boost="false">
+					@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+						Sync now
+					}
+				</form>
+				@ui.LinkButton("ghost", accountURL(a, "/history")) {
+					History
+				}
+			</div>
+		</div>
+		<dl class="grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+			<div class="flex gap-2"><dt class="text-muted">Last synced</dt><dd>{ when(a.LastSyncedAt, loc) }</dd></div>
+			<div class="flex gap-2"><dt class="text-muted">Next sync</dt><dd>{ when(a.NextSyncAt, loc) }</dd></div>
+		</dl>
+		if l := runLabel(a.RunStatus); l != "" {
+			<p class="text-sm">{ l }</p>
+		}
+		if len(a.RunWarnings) > 0 {
+			<ul class="list-disc space-y-1 pl-5 text-sm text-muted">
+				for _, w := range a.RunWarnings {
+					<li>{ w }</li>
+				}
+			</ul>
+		}
+		if a.LastError != nil {
+			<p class="text-sm text-danger" role="status">{ *a.LastError }</p>
+		}
+	}
+}
