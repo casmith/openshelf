@@ -57,3 +57,12 @@ join connected_accounts ca on ca.id = u.account_id
 where ca.user_id = @user_id and a.media_item_id = sqlc.arg(item_id)::bigint and u.unlocked_at is not null
 group by a.id
 order by unlocked_at, a.id;
+
+-- name: AchievementsLastPlayed :one
+-- The viewer's most recent play of an item across their accounts.
+select p.last_played_at::timestamptz as last_played_at
+from external_playtime p
+join connected_accounts ca on ca.id = p.account_id
+where ca.user_id = @user_id and p.media_item_id = sqlc.arg(item_id)::bigint and p.last_played_at is not null
+order by p.last_played_at desc
+limit 1;

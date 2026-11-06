@@ -333,6 +333,9 @@ func TestQueryCountsAreBounded(t *testing.T) {
 				f.game(acct, fmt.Sprintf("Game %03d", i), 60, allUnlocked(5, "2022-03-04T10:00:00Z")...)
 			default:
 				f.game(acct, fmt.Sprintf("Game %03d", i), 60, unlock{"Chapter 1", "Finish chapter 1", "2021-11-27T05:00:00Z"})
+				if i%2 == 0 {
+					f.played(acct, fmt.Sprintf("Played %03d", i), 2, 1, 3)
+				}
 			}
 		}
 	}
@@ -344,7 +347,7 @@ func TestQueryCountsAreBounded(t *testing.T) {
 		t.Errorf("home ran %d queries with 3 games and %d with 300", home, got)
 	}
 	res := c.Get("/suggestions/finished")
-	if n := len(listed(res.Body)); n != 200 {
+	if n := len(listed(res.Body)); n != 250 {
 		t.Fatalf("listed %d suggestions", n)
 	}
 	if got := testutil.CountQueries(t, f.s.Pool, func() { c.Get("/suggestions/finished") }); got != page {

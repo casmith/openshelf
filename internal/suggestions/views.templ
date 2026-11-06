@@ -37,10 +37,17 @@ func playtime(minutes int) string {
 }
 
 func levelName(l achievements.Level) string {
-	if l == achievements.Strong {
+	switch l {
+	case achievements.Strong:
 		return "strong"
+	case Maybe:
+		return "maybe"
 	}
 	return "medium"
+}
+
+func playtimeLine(s Suggestion) string {
+	return "You played " + ui.Hours(int32(s.Minutes)) + " · most players finish the main story in " + ui.Hours(int32(s.Normally))
 }
 
 // Link is the compact "N games look finished" entry point; it renders nothing for n = 0.
@@ -59,7 +66,7 @@ templ Link(n int) {
 
 templ page(p ui.Page, v pageView) {
 	@ui.Layout(p) {
-		@ui.PageHeader("Possibly finished", "Based on your Steam achievements. Nothing is marked until you confirm.") {
+		@ui.PageHeader("Possibly finished", "Based on your Steam achievements and playtime. Nothing is marked until you confirm.") {
 			if len(v.Strong) > 0 {
 				@ui.LinkButton("secondary", pagePath+"/all") {
 					Mark all strong as finished
@@ -73,11 +80,24 @@ templ page(p ui.Page, v pageView) {
 						Connections
 					}
 				}
-			} else if len(v.Strong) == 0 && len(v.Medium) == 0 {
+			} else if len(v.Strong) == 0 && len(v.Medium) == 0 && len(v.Maybe) == 0 {
 				@ui.EmptyState("Nothing to suggest", "None of your unfinished games have achievements that look like an ending.")
 			} else {
 				@group("Strong signals", "An achievement that marks the ending.", v.Strong, v.Loc)
 				@group("Possible", "Every achievement unlocked, or a completion that may not be the main story.", v.Medium, v.Loc)
+				if len(v.Maybe) > 0 {
+					<details data-maybe-group>
+						<summary class="cursor-pointer">
+							<h2 class="inline font-semibold">Maybe <span class="font-normal text-muted">({ strconv.Itoa(len(v.Maybe)) })</span></h2>
+							<p class="text-sm text-muted">You've played about as long as most players take to finish the main story.</p>
+						</summary>
+						<ul class="mt-3 space-y-3">
+							for _, s := range v.Maybe {
+								@card(s, v.Loc)
+							}
+						</ul>
+					</details>
+				}
 			}
 		</div>
 	}
@@ -108,7 +128,12 @@ templ card(s Suggestion, loc *time.Location) {
 		</a>
 		<div class="min-w-0 flex-1">
 			<a href={ templ.SafeURL(itemURL(s)) } class="font-medium hover:text-accent">{ s.Title }</a>
-			if s.AllUnlocked {
+			if s.Level == Maybe {
+				<p class="mt-1 text-sm" data-evidence>{ playtimeLine(s) }</p>
+				if s.FinishAt != nil {
+					<p class="text-sm text-muted" data-dated>Dated to when you last played ({ FinishDay(s, loc).Format("Jan 2, 2006") }).</p>
+				}
+			} else if s.AllUnlocked {
 				<p class="mt-1 text-sm">All achievements unlocked</p>
 				<p class="text-sm text-muted">Latest: { evidenceLine(s, loc) }</p>
 			} else {
@@ -117,12 +142,14 @@ templ card(s Suggestion, loc *time.Location) {
 			if s.Level == achievements.Medium && s.FinishAt != nil {
 				<p class="text-sm text-muted" data-dated>Dated to your last achievement, { FinishDay(s, loc).Format("Jan 2, 2006") }.</p>
 			}
-			<p class="mt-1 text-xs text-muted">
-				Achievements { strconv.Itoa(s.Unlocked) }/{ strconv.Itoa(s.Total) }
-				if s.Minutes > 0 {
-					· { playtime(s.Minutes) } played
-				}
-			</p>
+			if s.Level != Maybe {
+				<p class="mt-1 text-xs text-muted">
+					Achievements { strconv.Itoa(s.Unlocked) }/{ strconv.Itoa(s.Total) }
+					if s.Minutes > 0 {
+						· { playtime(s.Minutes) } played
+					}
+				</p>
+			}
 			<div class="mt-3 flex flex-wrap gap-2">
 				if s.FinishAt != nil {
 					@actionForm(s, "finish", "primary") {
@@ -181,9 +208,13 @@ templ confirmPage(p ui.Page, strong []Suggestion, loc *time.Location) {
 	}
 }
 
-templ itemPanel(item db.MediaItem) {
+templ itemPanel(item db.MediaItem, s Suggestion) {
 	<div class="rounded-lg border border-line bg-surface px-5 py-3 text-sm" id="finish-suggestion">
-		Steam suggests you finished this —
+		if s.Level == Maybe {
+			Your Steam playtime suggests you may have finished this —
+		} else {
+			Steam suggests you finished this —
+		}
 		<form method="post" action={ templ.SafeURL(pagePath + "/" + item.PublicID.String() + "/finish") } class="inline">
 			<input type="hidden" name="next" value={ "/items/" + item.PublicID.String() }/>
 			<button type="submit" class="font-medium text-accent hover:underline">Mark finished</button>

@@ -80,6 +80,31 @@ func TestFinishHintFromLastUnlock(t *testing.T) {
 	}
 }
 
+func TestFinishHintFromLastPlayed(t *testing.T) {
+	s, alice, acct := hintSetup(t)
+	game := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Hades")
+	exec(t, s, `insert into external_playtime (account_id, media_item_id, provider_item_key, minutes_total, last_played_at)
+	            values ($1, $2, 'hades', 600, '2024-03-04T03:00:00Z')`, acct.ID, game.ID)
+	c := s.LoginAs(t, alice)
+	input, hint := finishForm(t, c.Get("/items/"+game.PublicID.String()).Body)
+	if !strings.Contains(input, `value="2024-03-03"`) {
+		t.Errorf("input %s", input)
+	}
+	if hint != "From when you last played on Steam (Mar 3, 2024) — clear it if that&#39;s not right." {
+		t.Errorf("hint %q", hint)
+	}
+
+	unlockAll(t, s, acct, game, [][2]string{{"Thing :: Do a thing", "2023-01-01T10:00:00Z"}})
+	if input, _ := finishForm(t, c.Get("/items/"+game.PublicID.String()).Body); !strings.Contains(input, `value="2023-01-01"`) {
+		t.Errorf("achievements should take priority: input %s", input)
+	}
+
+	bob := testutil.CreateUser(t, s.Q, "bob")
+	if input, _ := finishForm(t, s.LoginAs(t, bob).Get("/items/"+game.PublicID.String()).Body); strings.Contains(input, "value=") {
+		t.Errorf("bob sees alice's last played: %s", input)
+	}
+}
+
 func TestFinishHintAbsentWithoutOwnUnlocks(t *testing.T) {
 	s, alice, _ := hintSetup(t)
 	game := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Portal")

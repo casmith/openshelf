@@ -1,7 +1,9 @@
 package library
 
 import (
+	"math"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -149,12 +151,46 @@ var (
 		{Value: "release", Label: "Release date"},
 		{Value: "rating", Label: "Rating"},
 	}
-	dirOptions = []ui.Option{
-		{Value: "", Label: "Default order"},
-		{Value: "asc", Label: "Ascending"},
-		{Value: "desc", Label: "Descending"},
+	lengthOptions = []ui.Option{
+		{Value: "", Label: "Any length"},
+		{Value: "under5", Label: "Under 5 h"},
+		{Value: "5to15", Label: "5–15 h"},
+		{Value: "15to40", Label: "15–40 h"},
+		{Value: "40plus", Label: "40 h+"},
+		{Value: "none", Label: "No estimate"},
 	}
 )
+
+func sortOptionsFor(kind *db.MediaKind) []ui.Option {
+	if !gamesOnly(kind) {
+		return sortOptions
+	}
+	return append(slices.Clip(sortOptions), ui.Option{Value: "length", Label: "Length"})
+}
+
+func dirOptions(sort string) []ui.Option {
+	if sort == "length" {
+		return []ui.Option{{Value: "", Label: "Shortest first"}, {Value: "desc", Label: "Longest first"}}
+	}
+	return []ui.Option{{Value: "", Label: "Default order"}, {Value: "asc", Label: "Ascending"}, {Value: "desc", Label: "Descending"}}
+}
+
+// hours mirrors catalog's time-to-beat rounding: nearest half hour below 10 h, whole hours above.
+func hours(minutes int32) string {
+	h := float64(minutes) / 60
+	if h < 10 {
+		h = max(math.Round(h*2)/2, 0.5)
+		return strconv.FormatFloat(h, 'f', -1, 64) + " h"
+	}
+	return strconv.Itoa(int(math.Round(h))) + " h"
+}
+
+func lengthText(e db.LibraryListEntriesRow) string {
+	if e.LengthMinutes == nil {
+		return ""
+	}
+	return hours(*e.LengthMinutes)
+}
 
 func filterOwnershipOptions() []ui.Option {
 	return append([]ui.Option{{Value: "", Label: "Any ownership"}}, ownershipOptions...)
@@ -259,6 +295,18 @@ func (v libraryView) pageHref(key, cursor string) string {
 	q := v.Filter.Query()
 	q.Set(key, cursor)
 	return withQuery(v.Path, q)
+}
+
+func (v libraryView) quickWinsHref() string {
+	q := v.Filter.Query()
+	q.Set("status", "backlog")
+	q.Set("sort", "length")
+	q.Del("dir")
+	return withQuery(v.Path, q)
+}
+
+func (v libraryView) quickWinsActive() bool {
+	return v.Filter.Status == "backlog" && v.Filter.Sort == "length" && !v.Filter.Desc
 }
 
 func (v libraryView) filtered() bool {

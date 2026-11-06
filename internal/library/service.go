@@ -32,8 +32,22 @@ var ErrDuplicate = errors.New("library: entry already exists")
 
 var (
 	statuses = []string{"in_progress", "finished", "backlog", "played", "not_played"}
-	sorts    = []string{"title", "added", "release", "rating"}
+	sorts    = []string{"title", "added", "release", "rating", "length"}
 )
+
+// lengthBuckets bound the main time-to-beat estimate in minutes as [min, max); max 0 is open.
+var lengthBuckets = map[string][2]int32{
+	"under5": {0, 5 * 60},
+	"5to15":  {5 * 60, 15 * 60},
+	"15to40": {15 * 60, 40 * 60},
+	"40plus": {40 * 60, 0},
+	"none":   {},
+}
+
+// gamesOnly reports whether length sorting and filtering apply to this tab.
+func gamesOnly(kind *db.MediaKind) bool { return kind == nil || *kind == db.MediaKindGame }
+
+func defaultDesc(sort string) bool { return sort != "title" && sort != "length" }
 
 // Filter is the library page state. It round-trips through the query string.
 type Filter struct {
@@ -45,6 +59,7 @@ type Filter struct {
 	Genre     string
 	Tag       string
 	Rating    string // "rated", "unrated", or a minimum 0–100
+	Length    string // a lengthBuckets key
 	AddedFrom *time.Time
 	AddedTo   *time.Time
 	Sort      string
@@ -82,10 +97,13 @@ func ParseFilter(kind *db.MediaKind, v url.Values) Filter {
 	if t, err := time.Parse(time.DateOnly, get("added_to")); err == nil {
 		f.AddedTo = &t
 	}
-	if s := get("sort"); slices.Contains(sorts, s) {
+	if _, ok := lengthBuckets[get("length")]; ok && gamesOnly(kind) {
+		f.Length = get("length")
+	}
+	if s := get("sort"); slices.Contains(sorts, s) && (s != "length" || gamesOnly(kind)) {
 		f.Sort = s
 	}
-	f.Desc = f.Sort != "title"
+	f.Desc = defaultDesc(f.Sort)
 	switch get("dir") {
 	case "asc":
 		f.Desc = false
@@ -121,6 +139,7 @@ func (f Filter) Query() url.Values {
 	set("genre", f.Genre)
 	set("tag", f.Tag)
 	set("rating", f.Rating)
+	set("length", f.Length)
 	if f.AddedFrom != nil {
 		set("added_from", f.AddedFrom.Format(time.DateOnly))
 	}
@@ -130,7 +149,7 @@ func (f Filter) Query() url.Values {
 	if f.Sort != "title" {
 		set("sort", f.Sort)
 	}
-	if f.Desc != (f.Sort != "title") {
+	if f.Desc != defaultDesc(f.Sort) {
 		set("dir", map[bool]string{true: "desc", false: "asc"}[f.Desc])
 	}
 	if f.Per != defaultPerPage {
@@ -207,6 +226,16 @@ func List(ctx context.Context, q *db.Queries, viewer db.User, f Filter) (Page, e
 		n, _ := strconv.Atoi(f.Rating)
 		m := int32(n)
 		p.RatingMin = &m
+	}
+	if b, ok := lengthBuckets[f.Length]; ok {
+		p.LengthFilter = true
+		p.NoLength = f.Length == "none"
+		if !p.NoLength {
+			p.LengthMin = &b[0]
+			if b[1] > 0 {
+				p.LengthMax = &b[1]
+			}
+		}
 	}
 	p.NumDesc = f.Desc
 	p.NullKey = math.Inf(1)
