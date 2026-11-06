@@ -93,10 +93,12 @@ templ page(p ui.Page, data pageData) {
 							}
 						</div>
 						if ad.Configured && ad.Caps.LinkPath != "" {
-							@ui.LinkButton("primary", ad.Caps.LinkPath) {
-								@ui.Icon("plus", "h-4 w-4")
-								{ "Link " + ad.Caps.DisplayName + " account" }
-							}
+							<div hx-boost="false">
+								@ui.LinkButton("primary", ad.Caps.LinkPath) {
+									@ui.Icon("plus", "h-4 w-4")
+									{ "Link " + ad.Caps.DisplayName + " account" }
+								}
+							</div>
 						}
 					}
 				}
@@ -132,6 +134,9 @@ templ accountCard(a accountView, loc *time.Location) {
 				</form>
 				@ui.LinkButton("ghost", accountURL(a, "/history")) {
 					History
+				}
+				@ui.LinkButton("ghost", "/connections/"+a.PublicID.String()+"/unlink") {
+					Unlink
 				}
 			</div>
 		</div>
