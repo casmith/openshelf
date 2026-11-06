@@ -66,3 +66,11 @@ join connected_accounts ca on ca.id = p.account_id
 where ca.user_id = @user_id and p.media_item_id = sqlc.arg(item_id)::bigint and p.last_played_at is not null
 order by p.last_played_at desc
 limit 1;
+
+-- name: AchievementsProgressForItem :many
+-- The viewer's Audiobookshelf progress rows for an item, finished first.
+select p.finished, p.finished_at, p.fraction, p.last_activity_at
+from external_progress p
+join connected_accounts ca on ca.id = p.account_id
+where ca.user_id = @user_id and p.media_item_id = sqlc.arg(item_id)::bigint
+order by p.finished desc, p.finished_at nulls last, p.fraction desc, p.last_activity_at desc nulls last;

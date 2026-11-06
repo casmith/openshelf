@@ -79,7 +79,7 @@ templ libraryBody(v libraryView, src sources) {
 			class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
 		>
 			@filterSelect("ownership", "Ownership", ownershipValue(v.Filter.Ownership), filterOwnershipOptions())
-			@filterSelect("status", "Status", v.Filter.Status, statusOptions)
+			@filterSelect("status", "Status", v.Filter.Status, statusOptionsFor(v.Filter.Kind))
 			if v.Filter.Kind == nil || *v.Filter.Kind == db.MediaKindGame || len(v.Facets.Platforms) > 0 {
 				@filterSelect("platform", "Platform", v.Filter.Platform, facetOptions("Any platform", v.Facets.Platforms, false))
 			}
@@ -223,7 +223,7 @@ templ itemPanel(v panelView) {
 			}
 			<ul class="mt-3 space-y-4">
 				for _, e := range v.Entries {
-					@panelEntry(e, v.Src)
+					@panelEntry(e, v.Item.Kind, v.Src)
 				}
 			</ul>
 			if len(v.Entries) == 0 || len(v.Editions) > 0 {
@@ -242,7 +242,7 @@ templ itemPanel(v panelView) {
 	}
 }
 
-templ panelEntry(e db.LibraryItemEntriesRow, src sources) {
+templ panelEntry(e db.LibraryItemEntriesRow, kind db.MediaKind, src sources) {
 	<li class="rounded-md border border-line p-3" data-entry={ e.PublicID.String() }>
 		<div class="flex flex-wrap items-center gap-2">
 			<span class="font-medium">{ entryEditionLabel(e) }</span>
@@ -278,9 +278,9 @@ templ panelEntry(e db.LibraryItemEntriesRow, src sources) {
 			<p class="mt-2 whitespace-pre-line text-sm">{ *e.Notes }</p>
 		}
 		<div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-			<span class="text-muted" data-played>{ panelPlayedLabel(e, src) }</span>
-			@playedButton(e, "true", "Played", e.PlayedUser != nil && *e.PlayedUser)
-			@playedButton(e, "false", "Not played", e.PlayedUser != nil && !*e.PlayedUser)
+			<span class="text-muted" data-played>{ panelPlayedLabel(e, kind, src) }</span>
+			@playedButton(e, "true", playedWord(kind, true), e.PlayedUser != nil && *e.PlayedUser)
+			@playedButton(e, "false", playedWord(kind, false), e.PlayedUser != nil && !*e.PlayedUser)
 			if playedDiffers(e) {
 				@playedButton(e, "reset", "Reset to source", false)
 			} else if e.PlayedUser != nil {
@@ -412,14 +412,14 @@ func sourceOwnership(user, source *db.Ownership, provider string, src sources) s
 	return ""
 }
 
-func sourcePlayed(user, source *bool, provider string, src sources) string {
+func sourcePlayed(kind db.MediaKind, user, source *bool, provider string, src sources) string {
 	if user != nil || source == nil {
 		return ""
 	}
-	if *source {
-		return "Played · inferred from " + src.name(provider)
+	if kind == db.MediaKindBook {
+		return playedWord(kind, *source) + " · from " + src.name(provider)
 	}
-	return "Not played · inferred from " + src.name(provider)
+	return playedWord(kind, *source) + " · inferred from " + src.name(provider)
 }
 
 func panelOwnershipLabel(e db.LibraryItemEntriesRow, src sources) string {
@@ -429,24 +429,30 @@ func panelOwnershipLabel(e db.LibraryItemEntriesRow, src sources) string {
 	return ownershipLabel(e.EffectiveOwnership)
 }
 
-func playedWord(b bool) string {
-	if b {
+// playedWord names the played flag; books say "Started" (the played_* columns are shared).
+func playedWord(kind db.MediaKind, b bool) string {
+	switch {
+	case kind == db.MediaKindBook && b:
+		return "Started"
+	case kind == db.MediaKindBook:
+		return "Not started"
+	case b:
 		return "Played"
 	}
 	return "Not played"
 }
 
-func panelPlayedLabel(e db.LibraryItemEntriesRow, src sources) string {
+func panelPlayedLabel(e db.LibraryItemEntriesRow, kind db.MediaKind, src sources) string {
 	if playedDiffers(e) {
-		return playedWord(*e.PlayedUser) + " (you) · " + src.name(e.SourceProvider) + " says " + strings.ToLower(playedWord(*e.PlayedSource))
+		return playedWord(kind, *e.PlayedUser) + " (you) · " + src.name(e.SourceProvider) + " says " + strings.ToLower(playedWord(kind, *e.PlayedSource))
 	}
-	if l := sourcePlayed(e.PlayedUser, e.PlayedSource, e.SourceProvider, src); l != "" {
+	if l := sourcePlayed(kind, e.PlayedUser, e.PlayedSource, e.SourceProvider, src); l != "" {
 		return l
 	}
 	if e.PlayedUser != nil {
-		return playedWord(e.Played) + " (set by you)"
+		return playedWord(kind, e.Played) + " (set by you)"
 	}
-	return playedWord(e.Played)
+	return playedWord(kind, e.Played)
 }
 
 func listOwnershipLabel(e db.LibraryListEntriesRow, src sources) string {
@@ -457,7 +463,7 @@ func listOwnershipLabel(e db.LibraryListEntriesRow, src sources) string {
 }
 
 func listPlayedLabel(e db.LibraryListEntriesRow, src sources) string {
-	return sourcePlayed(e.PlayedUser, e.PlayedSource, e.SourceProvider, src)
+	return sourcePlayed(e.Kind, e.PlayedUser, e.PlayedSource, e.SourceProvider, src)
 }
 
 func achievementText(src sources, itemID int64) string {

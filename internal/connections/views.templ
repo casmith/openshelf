@@ -90,6 +90,9 @@ templ page(p ui.Page, data pageData) {
 						<div>
 							<p class="font-medium">{ ad.Caps.DisplayName }</p>
 							<p class="text-sm text-muted">{ capsSummary(ad) }</p>
+							if ad.Configured && ad.Caps.Audiobooks {
+								<p class="mt-1 text-sm text-muted" data-api-key-hint>You'll need an API key from Audiobookshelf → Settings → API Keys.</p>
+							}
 							if !ad.Configured {
 								<p class="mt-1 text-sm text-muted">Not available yet: an administrator needs to configure it.</p>
 							}

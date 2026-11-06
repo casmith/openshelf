@@ -131,7 +131,7 @@ func runStatusLabel(s db.SyncRunStatus) string {
 	return string(s)
 }
 
-func countsSummary(r runView) string {
+func countsSummary(v historyView, r runView) string {
 	c := r.Counts
 	var parts []string
 	add := func(n int, label string) {
@@ -139,7 +139,7 @@ func countsSummary(r runView) string {
 			parts = append(parts, strconv.Itoa(n)+" "+label)
 		}
 	}
-	add(c.Games, "games")
+	add(c.Games, plural(c.Games, v.Noun, v.Noun+"s"))
 	add(c.EntriesCreated, "added")
 	add(c.EntriesUpdated, "updated")
 	add(c.ItemsCreated, "new items")
@@ -184,7 +184,7 @@ templ historyPage(p ui.Page, v historyView) {
 			})
 			if v.Filter == filterReview {
 				if len(v.Review) == 0 {
-					@ui.EmptyState("Nothing to review", "Every imported game matched a catalog item.")
+					@ui.EmptyState("Nothing to review", "Every imported "+v.Noun+" matched a catalog item.")
 				} else {
 					@ui.Card("") {
 						@eventList(v, v.Review)
@@ -217,7 +217,7 @@ templ historyPage(p ui.Page, v historyView) {
 			<section aria-labelledby="exclusions" class="space-y-3">
 				<h2 id="exclusions" class="font-semibold">Excluded from sync</h2>
 				if len(v.Excluded) == 0 {
-					<p class="text-sm text-muted">Nothing is excluded. Exclude a game from its page to stop importing it.</p>
+					<p class="text-sm text-muted">Nothing is excluded. Exclude a { v.Noun } from its page to stop importing it.</p>
 				} else {
 					@ui.Table() {
 						<tbody>
@@ -263,7 +263,7 @@ templ runItem(v historyView, r runView) {
 			<summary class="flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3">
 				<span class="font-medium">{ r.StartedAt.In(v.Loc).Format("Jan 2, 2006 15:04") }</span>
 				@ui.Badge(runStatusLabel(r.Status))
-				<span class="text-sm text-muted">{ countsSummary(r) }</span>
+				<span class="text-sm text-muted">{ countsSummary(v, r) }</span>
 				<span class="ml-auto text-xs text-muted">{ strconv.Itoa(int(r.EventCount)) } events</span>
 			</summary>
 			<div class="space-y-3 border-t border-line px-4 py-3">

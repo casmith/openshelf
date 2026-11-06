@@ -110,6 +110,10 @@ func hintText(h *achievements.FinishHint) string {
 	switch h.Basis {
 	case achievements.BasisEnding:
 		return "From your Steam achievements: ‘" + h.Name + "’ unlocked " + fmtDate(&h.Day)
+	case achievements.BasisListenFinished:
+		return "From Audiobookshelf (finished " + fmtDate(&h.Day) + ")"
+	case achievements.BasisListenNearly:
+		return "From when you last listened on Audiobookshelf (" + fmtDate(&h.Day) + ") — clear it if that's not right."
 	case achievements.BasisLastPlayed:
 		return "From when you last played on Steam (" + fmtDate(&h.Day) + ") — clear it if that's not right."
 	}

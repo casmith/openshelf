@@ -11,6 +11,7 @@ import (
 	"github.com/casmith/openshelf/internal/deps"
 	"github.com/casmith/openshelf/internal/experiences"
 	"github.com/casmith/openshelf/internal/journal"
+	"github.com/casmith/openshelf/internal/suggestions"
 )
 
 const (
@@ -33,7 +34,7 @@ type homeData struct {
 	Activity  []journal.Event
 	Backlog   []db.DashboardBacklogPicksRow
 	Display   db.RatingDisplay
-	Suggested int
+	Suggested suggestions.Tally
 	Loc       *time.Location
 }
 
