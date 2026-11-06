@@ -213,6 +213,24 @@ func TestCountersFollowDerivedDefinitions(t *testing.T) {
 	}
 }
 
+func TestRecentlyFinishedSkipsUndated(t *testing.T) {
+	s := testutil.NewServer(t)
+	alice := testutil.CreateUser(t, s.Q, "alice")
+	dated := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Dated Game").ID
+	createExperience(t, s, alice.ID, dated, db.ExperienceStateFinished)
+	undated := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Undated Game").ID
+	id := createExperience(t, s, alice.ID, undated, db.ExperienceStateFinished)
+	exec(t, s, "update experiences set finished_on = null where id = $1", id)
+
+	res := s.LoginAs(t, alice).Get("/")
+	if finished := sectionTitles(res.Body, "finished"); len(finished) != 1 || finished[0] != "Dated Game" {
+		t.Errorf("recently finished = %v, want only the dated finish", finished)
+	}
+	if got := counters(t, res.Body)["completed"]; got != "2" {
+		t.Errorf("completed = %s, want 2 (undated finishes still count)", got)
+	}
+}
+
 func TestBacklogPicksStablePerDay(t *testing.T) {
 	s := testutil.NewServer(t)
 	alice := testutil.CreateUser(t, s.Q, "alice")

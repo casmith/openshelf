@@ -131,14 +131,11 @@ func Create(ctx context.Context, q *db.Queries, now time.Time, viewer db.User, i
 			return db.Experience{}, err
 		}
 	}
-	verb := db.ActivityVerbStarted
+	verb, at := db.ActivityVerbStarted, now
 	if in.Finished {
-		verb = db.ActivityVerbFinished
+		verb, at = db.ActivityVerbFinished, finishedAt(now, viewer.Timezone, in.FinishedOn)
 		p.State = db.ExperienceStateFinished
 		p.FinishedOn = in.FinishedOn
-		if p.FinishedOn == nil {
-			p.FinishedOn = &today
-		}
 		p.ProgressCurrent = p.ProgressTotal
 	} else if p.StartedOn == nil {
 		p.StartedOn = &today
@@ -151,7 +148,23 @@ func Create(ctx context.Context, q *db.Queries, now time.Time, viewer db.User, i
 	if err != nil {
 		return db.Experience{}, err
 	}
-	return e, record(ctx, q, e, verb, now)
+	// An undated finish is a backfill, so it stays out of the journal.
+	if in.Finished && p.FinishedOn == nil {
+		return e, nil
+	}
+	return e, record(ctx, q, e, verb, at)
+}
+
+// finishedAt dates a finish event: the start of a past finish day in the user's timezone, else now.
+func finishedAt(now time.Time, tz string, day *time.Time) time.Time {
+	if day == nil || !day.Before(Today(now, tz)) {
+		return now
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		loc = time.UTC
+	}
+	return time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, loc)
 }
 
 // resolveEdition uses the requested edition if it belongs to the item, else the viewer's library edition.
@@ -313,12 +326,29 @@ func Edit(ctx context.Context, q *db.Queries, now time.Time, viewer db.User, e d
 		v := clamp(*current, total)
 		current = &v
 	}
-	return q.ExperiencesUpdateDetails(ctx, db.ExperiencesUpdateDetailsParams{
+	updated, err := q.ExperiencesUpdateDetails(ctx, db.ExperiencesUpdateDetailsParams{
 		ID: e.ID, UserID: viewer.ID,
 		StartedOn: in.StartedOn, FinishedOn: in.FinishedOn,
 		ProgressUnit: in.ProgressUnit, ProgressCurrent: current, ProgressTotal: total,
 		Notes: in.Notes, Visibility: in.Visibility, UpdatedAt: now,
 	})
+	if err != nil || e.FinishedOn != nil || updated.FinishedOn == nil {
+		return updated, err
+	}
+	// Dating an undated finish journals it, unless it was already journaled.
+	verb := db.ActivityVerbFinished
+	switch e.State {
+	case db.ExperienceStateFinished:
+	case db.ExperienceStateAbandoned:
+		verb = db.ActivityVerbAbandoned
+	default:
+		return updated, nil
+	}
+	has, err := q.ExperiencesHasEvent(ctx, db.ExperiencesHasEventParams{UserID: viewer.ID, ExperienceID: &e.ID, Verb: verb})
+	if err != nil || has {
+		return updated, err
+	}
+	return updated, record(ctx, q, updated, verb, finishedAt(now, viewer.Timezone, updated.FinishedOn))
 }
 
 // Delete removes the viewer's experience and returns its item ID.

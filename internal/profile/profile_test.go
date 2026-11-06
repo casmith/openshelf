@@ -246,26 +246,31 @@ func TestCompletedGroupsByYear(t *testing.T) {
 	finish(yearly, "2023-05-01")
 	finish(yearly, "2024-02-01")
 	testutil.CreateReview(t, s.Pool, alice.ID, twice.ID, 80, db.VisibilityPublic)
-	// No finished_on: grouped by the owner's local date of the last update.
-	late := item(t, s, db.MediaKindFilm, "New Year Film")
-	x := experience(t, s, alice.ID, late.ID, db.ExperienceStateFinished, db.VisibilityPublic)
-	exec(t, s, "update experiences set finished_on = null, updated_at = '2023-01-01 03:00:00Z' where id = $1", x.ID)
+	// No finished_on: listed under "Earlier", never placed in a year by updated_at.
+	late := item(t, s, db.MediaKindFilm, "Undated Film")
+	for range 3 {
+		x := experience(t, s, alice.ID, late.ID, db.ExperienceStateFinished, db.VisibilityPublic)
+		exec(t, s, "update experiences set finished_on = null, updated_at = '2023-01-01 03:00:00Z' where id = $1", x.ID)
+	}
 
 	sec := section(get(t, s.LoginAs(t, bob), "/@alice", http.StatusOK), "completed")
-	y24, y23, y22 := strings.Index(sec, `data-year="2024"`), strings.Index(sec, `data-year="2023"`), strings.Index(sec, `data-year="2022"`)
-	if y24 < 0 || y23 < y24 || y22 < y23 {
-		t.Fatalf("years out of order: 2024@%d 2023@%d 2022@%d\n%s", y24, y23, y22, sec)
+	y24, y23, early := strings.Index(sec, `data-year="2024"`), strings.Index(sec, `data-year="2023"`), strings.Index(sec, `data-year="Earlier"`)
+	if y24 < 0 || y23 < y24 || early < y23 {
+		t.Fatalf("groups out of order: 2024@%d 2023@%d Earlier@%d\n%s", y24, y23, early, sec)
 	}
-	y2024, y2023, y2022 := sec[y24:y23], sec[y23:y22], sec[y22:]
+	lacks(t, sec, `data-year="2022"`)
+	y2024, y2023, earlier := sec[y24:y23], sec[y23:early], sec[early:]
 	if strings.Count(sec, "Twice Read") != 1 || !strings.Contains(y2024, "Twice Read") || !strings.Contains(y2024, "×2") {
 		t.Errorf("twice-read book should appear once in 2024 with ×2:\n%s", y2024)
 	}
 	if !strings.Contains(y2024, "Yearly Game") || !strings.Contains(y2023, "Yearly Game") || strings.Contains(y2023, "×") {
 		t.Error("game finished in two years should appear once per year without a badge")
 	}
-	if !strings.Contains(y2022, "New Year Film") {
-		t.Error("finish without a date should use the owner's timezone")
+	if strings.Count(sec, "Undated Film") != 1 || !strings.Contains(earlier, "Undated Film") || !strings.Contains(earlier, "×3") {
+		t.Errorf("undated finishes should appear once under Earlier with ×3:\n%s", earlier)
 	}
+	contains(t, earlier, ">Earlier</h3>")
+	lacks(t, earlier, "Jan 1", "Dec 31")
 	contains(t, y2024, "8/10")
 }
 
@@ -307,6 +312,67 @@ func TestCompletedPaginates(t *testing.T) {
 	lacks(t, full, "Film 05")
 }
 
+func TestCompletedPaginatesIntoEarlier(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		dated, undated int
+		firstUndated   int
+	}{
+		{"boundary inside a page", 58, 5, 2},
+		{"boundary between pages", 60, 3, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := testutil.NewServer(t)
+			alice := testutil.CreateUser(t, s.Q, "alice")
+			for i := range tc.dated {
+				x := experience(t, s, alice.ID, item(t, s, db.MediaKindFilm, fmt.Sprintf("Dated %02d", i)).ID, db.ExperienceStateFinished, db.VisibilityPrivate)
+				exec(t, s, "update experiences set finished_on = date '2024-01-01' + $1::int where id = $2", i, x.ID)
+			}
+			for i := range tc.undated {
+				x := experience(t, s, alice.ID, item(t, s, db.MediaKindGame, fmt.Sprintf("Undated %02d", i)).ID, db.ExperienceStateFinished, db.VisibilityPrivate)
+				exec(t, s, "update experiences set finished_on = null, updated_at = timestamptz '2025-01-01 00:00:00.123456Z' + make_interval(hours => $1::int) where id = $2", i, x.ID)
+			}
+			c := s.LoginAs(t, alice)
+			sec := section(get(t, c, "/@alice", http.StatusOK), "completed")
+			if n := strings.Count(sec, `data-section="completed"`); n != 60 {
+				t.Fatalf("first page shows %d completions, want 60", n)
+			}
+			if got := strings.Count(sec, ">Undated "); got != tc.firstUndated {
+				t.Fatalf("first page shows %d undated, want %d", got, tc.firstUndated)
+			}
+			if tc.firstUndated > 0 {
+				contains(t, sec, ">Earlier</h3>", fmt.Sprintf("Undated %02d", tc.undated-1))
+			} else {
+				lacks(t, sec, ">Earlier</h3>")
+			}
+			m := regexp.MustCompile(`hx-get="([^"]+)"`).FindStringSubmatch(sec)
+			if m == nil {
+				t.Fatal("no load-more link")
+			}
+			req, _ := http.NewRequest(http.MethodGet, s.URL+strings.ReplaceAll(m[1], "&amp;", "&"), nil)
+			req.Header.Set("HX-Request", "true")
+			frag := c.Do(req)
+			if frag.StatusCode != http.StatusOK {
+				t.Fatalf("partial: status %d\n%s", frag.StatusCode, frag.Body)
+			}
+			rest := tc.undated - tc.firstUndated
+			if n := strings.Count(frag.Body, `data-section="completed"`); n != rest {
+				t.Fatalf("second page shows %d completions, want %d\n%s", n, rest, frag.Body)
+			}
+			if strings.Contains(frag.Body, ">Dated ") || strings.Contains(frag.Body, "All completions") {
+				t.Errorf("second page should hold only the remaining undated finishes:\n%s", frag.Body)
+			}
+			// Undated finishes run newest update first, so the oldest is last.
+			if !strings.Contains(frag.Body, "Undated 00") || strings.Index(frag.Body, "Undated 00") < strings.Index(frag.Body, fmt.Sprintf("Undated %02d", rest-1)) {
+				t.Errorf("undated order:\n%s", frag.Body)
+			}
+			if hasHeader := strings.Contains(frag.Body, ">Earlier</h3>"); hasHeader != (tc.firstUndated == 0) {
+				t.Errorf("Earlier header on second page = %v", hasHeader)
+			}
+		})
+	}
+}
+
 func TestBacklogAndStalled(t *testing.T) {
 	s := testutil.NewServer(t)
 	alice := testutil.CreateUser(t, s.Q, "alice")
@@ -321,6 +387,9 @@ func TestBacklogAndStalled(t *testing.T) {
 	experience(t, s, alice.ID, going.ID, db.ExperienceStatePaused, db.VisibilityPrivate)
 	quit := item(t, s, db.MediaKindFilm, "Gave Up")
 	experience(t, s, alice.ID, quit.ID, db.ExperienceStateAbandoned, db.VisibilityPrivate)
+	dropped := item(t, s, db.MediaKindBook, "Dropped Undated")
+	x := experience(t, s, alice.ID, dropped.ID, db.ExperienceStateAbandoned, db.VisibilityPrivate)
+	exec(t, s, "update experiences set finished_on = null where id = $1", x.ID)
 
 	body := get(t, s.LoginAs(t, alice), "/@alice", http.StatusOK)
 	back := section(body, "backlog")
@@ -333,6 +402,9 @@ func TestBacklogAndStalled(t *testing.T) {
 
 	stalled := section(body, "stalled")
 	contains(t, stalled, "Going Now", "Paused", "Gave Up", "Abandoned")
+	row := stalled[strings.Index(stalled, "Dropped Undated"):]
+	row = row[:strings.Index(row, "</li>")]
+	lacks(t, row, ", 20")
 }
 
 func TestReviewsAndLists(t *testing.T) {

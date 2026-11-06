@@ -179,6 +179,26 @@ func (q *Queries) ExperiencesGetForUpdate(ctx context.Context, arg ExperiencesGe
 	return i, err
 }
 
+const experiencesHasEvent = `-- name: ExperiencesHasEvent :one
+select exists (
+  select 1 from activity_events
+  where user_id = $1 and experience_id = $2 and verb = $3
+)::bool
+`
+
+type ExperiencesHasEventParams struct {
+	UserID       int64
+	ExperienceID *int64
+	Verb         ActivityVerb
+}
+
+func (q *Queries) ExperiencesHasEvent(ctx context.Context, arg ExperiencesHasEventParams) (bool, error) {
+	row := q.db.QueryRow(ctx, experiencesHasEvent, arg.UserID, arg.ExperienceID, arg.Verb)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const experiencesInsert = `-- name: ExperiencesInsert :one
 insert into experiences (user_id, media_item_id, edition_id, state, started_on, finished_on,
                          progress_unit, progress_current, progress_total, visibility)

@@ -122,6 +122,9 @@ func (h handlers) create(w http.ResponseWriter, r *http.Request) {
 	}
 	v := viewer(r)
 	in := CreateInput{Finished: f.Get("mode") == "finished"}
+	if d := f.Get("finished_today"); d != "" && in.Finished {
+		f.Values.Set("finished_on", d)
+	}
 	in.StartedOn, in.FinishedOn = validDates(f, Today(h.d.Now(), v.Timezone))
 	if s := f.Get("edition"); s != "" {
 		if eid, err := uuid.Parse(s); err == nil {
@@ -265,7 +268,11 @@ func (h handlers) update(w http.ResponseWriter, r *http.Request) {
 		h.renderEdit(w, r, http.StatusUnprocessableEntity, item, e, f)
 		return
 	}
-	if _, err := Edit(r.Context(), h.d.Q, h.d.Now(), v, e, in); err != nil {
+	err = h.d.WithTx(r.Context(), func(q *db.Queries, _ pgx.Tx) error {
+		_, err := Edit(r.Context(), q, h.d.Now(), v, e, in)
+		return err
+	})
+	if err != nil {
 		web.Error(w, r, h.d, err)
 		return
 	}
@@ -273,10 +280,7 @@ func (h handlers) update(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseEdit(f *form.Form, e db.Experience, today time.Time) (EditInput, bool) {
-	ended := e.State == db.ExperienceStateFinished || e.State == db.ExperienceStateAbandoned
-	if ended {
-		f.Required("finished_on")
-	} else {
+	if e.State != db.ExperienceStateFinished && e.State != db.ExperienceStateAbandoned {
 		f.Values.Del("finished_on")
 	}
 	f.Required("visibility")

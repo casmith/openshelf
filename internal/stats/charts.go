@@ -195,6 +195,13 @@ func timelineChart(s Stats) barChart {
 	return stackedBars("Completions per "+timelineUnit(s), labels, longs, ser, values)
 }
 
+func undatedNote(n int) string {
+	if n == 1 {
+		return "1 completion without a date"
+	}
+	return strconv.Itoa(n) + " completions without a date"
+}
+
 func timelineUnit(s Stats) string {
 	if s.Period.AllTime() {
 		return "year"

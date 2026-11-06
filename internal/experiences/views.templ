@@ -36,15 +36,19 @@ templ panel(p panelData) {
 							{ startLabel(p.Item.Kind, TimesFinished(p.Exps) > 0) }
 						}
 					}
-					@actionForm(createURL(p.Item), "flex items-end gap-2") {
+					@actionForm(createURL(p.Item), "flex flex-wrap items-end gap-2") {
 						<input type="hidden" name="mode" value="finished"/>
 						<div>
-							<label for="f-finished_on-new" class="mb-1 block text-xs text-muted">Finished on</label>
-							<input id="f-finished_on-new" type="date" name="finished_on" value={ p.Today } max={ p.Today } class="block rounded-md border border-line bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"/>
+							<label for="f-finished_on-new" class="mb-1 block text-xs text-muted">Finished on (optional)</label>
+							<input id="f-finished_on-new" type="date" name="finished_on" max={ p.Today } aria-describedby="f-finished_on-new-hint" class="block rounded-md border border-line bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"/>
 						</div>
 						@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
 							Log as { pastVerb(p.Item.Kind) }
 						}
+						@ui.Button("secondary", templ.Attributes{"type": "submit", "name": "finished_today", "value": p.Today}) {
+							Finished today
+						}
+						<p id="f-finished_on-new-hint" class="w-full text-xs text-muted">Leave blank if you don't remember.</p>
 					}
 				</div>
 			}
@@ -62,7 +66,9 @@ templ experienceRow(item db.MediaItem, e db.Experience) {
 	<li class="rounded-md border border-line p-3" data-experience={ e.PublicID.String() }>
 		<div class="flex flex-wrap items-center gap-2">
 			@ui.Badge(stateLabel(e.State))
-			<span class="text-sm text-muted">{ dateLine(e) }</span>
+			if l := dateLine(e); l != "" {
+				<span class="text-sm text-muted">{ l }</span>
+			}
 			<span class="ml-auto flex items-center gap-1">
 				<a href={ templ.SafeURL(expURL(e, "edit")) } class="rounded px-2 py-1 text-xs text-muted hover:bg-surface-2 hover:text-fg">Edit</a>
 				<button type="button" hx-delete={ expURL(e, "") } hx-confirm="Delete this entry?" hx-target={ "#" + panelID } hx-swap="outerHTML" class="rounded px-2 py-1 text-xs text-muted hover:bg-surface-2 hover:text-danger">Delete</button>
@@ -177,7 +183,7 @@ templ editPage(p ui.Page, item db.MediaItem, e db.Experience, f *form.Form) {
 				@ui.FormErrors(f.Errors)
 				@ui.Field("started_on", "Started on", f.Get("started_on"), f.Error("started_on"), templ.Attributes{"type": "date"})
 				if e.State == db.ExperienceStateFinished || e.State == db.ExperienceStateAbandoned {
-					@ui.Field("finished_on", finishedLabel(e.State), f.Get("finished_on"), f.Error("finished_on"), templ.Attributes{"type": "date", "required": true})
+					@ui.Field("finished_on", finishedLabel(e.State), f.Get("finished_on"), f.Error("finished_on"), templ.Attributes{"type": "date"})
 				}
 				<div class="grid gap-4 sm:grid-cols-2">
 					@ui.Select("progress_unit", "Progress unit", f.Get("progress_unit"), f.Error("progress_unit"), unitOptions(), nil)

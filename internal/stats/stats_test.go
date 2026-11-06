@@ -286,6 +286,62 @@ func TestRatingScales(t *testing.T) {
 	}
 }
 
+func TestUndatedFinishesCountOnlyForAllTime(t *testing.T) {
+	s := testutil.NewServer(t)
+	alice, _ := fixture(t, s)
+	s.Deps.Now = func() time.Time { return now }
+	u1 := item(t, s.Pool, db.MediaKindGame, "U1", "puzzle")
+	u2 := item(t, s.Pool, db.MediaKindBook, "U2", "puzzle")
+	experience(t, s.Pool, alice.ID, u1, exp{state: db.ExperienceStateFinished})
+	experience(t, s.Pool, alice.ID, u2, exp{state: db.ExperienceStateFinished, unit: "pages", current: 100})
+	experience(t, s.Pool, alice.ID, u2, exp{state: db.ExperienceStateFinished})
+
+	this := load(t, s, alice, url.Values{})
+	last := load(t, s, alice, url.Values{"period": {"last-year"}})
+	custom := load(t, s, alice, url.Values{"year": {"2026"}})
+	if this.Completed != 4 || last.Completed != 1 || custom.Completed != 4 || this.Undated != 0 || this.Pages != 450 {
+		t.Errorf("periods should ignore undated finishes: this %d last %d custom %d undated %d pages %d",
+			this.Completed, last.Completed, custom.Completed, this.Undated, this.Pages)
+	}
+	for _, g := range this.Genres {
+		if g.Name == "puzzle" {
+			t.Error("this year's genres include an undated finish")
+		}
+	}
+
+	all := load(t, s, alice, url.Values{"period": {"all"}})
+	if all.Completed != 7 || all.Undated != 3 || all.Pages != 600 {
+		t.Errorf("all time completed %d undated %d pages %d, want 7, 3, 600", all.Completed, all.Undated, all.Pages)
+	}
+	if k := kindCounts(all); k[db.MediaKindGame] != 3 || k[db.MediaKindBook] != 2 {
+		t.Errorf("all-time by kind = %v", k)
+	}
+	if len(all.Timeline) != 2 || all.Timeline[0].Total != 1 || all.Timeline[1].Total != 4 {
+		t.Errorf("all-time timeline should only hold dated finishes: %+v", all.Timeline)
+	}
+	found := false
+	for _, g := range all.Genres {
+		found = found || g.Name == "puzzle" && g.Count == 2
+	}
+	if !found {
+		t.Errorf("all-time genres = %+v, want puzzle:2", all.Genres)
+	}
+
+	c := s.LoginAs(t, alice)
+	if body := c.Get("/stats?period=all").Body; !strings.Contains(body, "3 completions without a date") {
+		t.Error("all-time page missing the undated note")
+	}
+	if body := c.Get("/stats").Body; strings.Contains(body, "without a date") {
+		t.Error("this-year page shows the undated note")
+	}
+	plain := user(t, s, "carol", "UTC", db.RatingDisplayStars5)
+	g := item(t, s.Pool, db.MediaKindFilm, "Dated")
+	experience(t, s.Pool, plain.ID, g, exp{state: db.ExperienceStateFinished, finished: "2020-01-01"})
+	if body := s.LoginAs(t, plain).Get("/stats?period=all").Body; strings.Contains(body, "without a date") {
+		t.Error("undated note shown with no undated finishes")
+	}
+}
+
 func TestOneQueryPerWidget(t *testing.T) {
 	s := testutil.NewServer(t)
 	alice, _ := fixture(t, s)

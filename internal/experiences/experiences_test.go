@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,17 @@ func createExperience(t *testing.T, s *testutil.Server, userID, itemID int64, st
 }
 
 func ptr[T any](v T) *T { return &v }
+
+var ny, _ = time.LoadLocation("America/New_York")
+
+func eventTime(t *testing.T, s *testutil.Server, e db.Experience, verb string) time.Time {
+	t.Helper()
+	var at time.Time
+	if err := s.Pool.QueryRow(ctx, `select occurred_at from activity_events where experience_id = $1 and verb = $2::activity_verb`, e.ID, verb).Scan(&at); err != nil {
+		t.Fatal(err)
+	}
+	return at
+}
 
 func experiencesOf(t *testing.T, s *testutil.Server, u db.User, item db.MediaItem) []db.Experience {
 	t.Helper()
@@ -269,6 +281,7 @@ func TestFilmWatchedTwiceAndRevisit(t *testing.T) {
 func TestFinishedWithoutStartAndBackdating(t *testing.T) {
 	s := testutil.NewServer(t)
 	u := testutil.CreateUser(t, s.Q, "alice")
+	exec(t, s, `update users set timezone = 'America/New_York' where id = $1`, u.ID)
 	item := testutil.CreateItem(t, s.Pool, db.MediaKindFilm, "Ran")
 	c := s.LoginAs(t, u)
 
@@ -279,6 +292,9 @@ func TestFinishedWithoutStartAndBackdating(t *testing.T) {
 	}
 	if v := verbs(t, s, u); strings.Join(v, ",") != "finished" {
 		t.Fatalf("verbs %v", v)
+	}
+	if at := eventTime(t, s, e, "finished"); !at.Equal(time.Date(2019, 5, 4, 0, 0, 0, 0, ny)) {
+		t.Fatalf("backdated finish recorded at %s, want the start of 2019-05-04 in the user's timezone", at)
 	}
 
 	wantStatus(t, c.Get(expURL(e, "/edit")), http.StatusOK)
@@ -294,7 +310,6 @@ func TestFinishedWithoutStartAndBackdating(t *testing.T) {
 	for _, bad := range []url.Values{
 		{"started_on": {"2019-05-05"}, "finished_on": {"2019-05-04"}, "visibility": {"private"}},
 		{"finished_on": {"2999-01-01"}, "visibility": {"private"}},
-		{"started_on": {"2019-05-01"}, "visibility": {"private"}},
 		{"finished_on": {"2019-05-04"}, "visibility": {"everyone"}},
 		{"finished_on": {"2019-05-04"}, "visibility": {"private"}, "progress_unit": {"furlongs"}},
 	} {
@@ -453,5 +468,119 @@ func TestTodayUsesTimezone(t *testing.T) {
 	}
 	if got := experiences.Today(now, "UTC").Format(time.DateOnly); got != "2026-03-01" {
 		t.Fatalf("Today = %s", got)
+	}
+}
+
+func TestLogFinishedWithoutDate(t *testing.T) {
+	s := testutil.NewServer(t)
+	u := testutil.CreateUser(t, s.Q, "alice")
+	item := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Shenmue")
+	c := s.LoginAs(t, u)
+
+	page := c.Get(itemURL(item))
+	wantStatus(t, page, http.StatusOK)
+	for _, want := range []string{"Finished on (optional)", "Leave blank if you don't remember.", ">Finished today<", `name="finished_today"`} {
+		if !strings.Contains(page.Body, want) {
+			t.Errorf("log form missing %q", want)
+		}
+	}
+	if regexp.MustCompile(`id="f-finished_on-new"[^>]*value=`).MatchString(page.Body) {
+		t.Error("finish date should be blank by default")
+	}
+
+	res := c.Form(http.MethodPost, itemURL(item)+"/experiences", url.Values{"mode": {"finished"}, "finished_on": {""}}, true)
+	wantStatus(t, res, http.StatusOK)
+	e := experiencesOf(t, s, u, item)[0]
+	if e.State != db.ExperienceStateFinished || e.FinishedOn != nil || e.StartedOn != nil {
+		t.Fatalf("undated finish: %+v", e)
+	}
+	if v := verbs(t, s, u); len(v) != 0 {
+		t.Fatalf("undated finish recorded activity %v", v)
+	}
+	row := res.Body[strings.Index(res.Body, `data-experience="`+e.PublicID.String()):]
+	row = row[:strings.Index(row, "</li>")]
+	if !strings.Contains(row, "Finished") || strings.Contains(row, `<span class="text-sm text-muted">`) {
+		t.Fatalf("undated row should show the Finished badge alone:\n%s", row)
+	}
+	for _, bad := range []string{"unknown", "—", "Finished on", "Finished <"} {
+		if strings.Contains(row, bad) {
+			t.Errorf("undated row contains %q", bad)
+		}
+	}
+}
+
+func TestFinishedTodayButton(t *testing.T) {
+	s := testutil.NewServer(t)
+	u := testutil.CreateUser(t, s.Q, "alice")
+	item := testutil.CreateItem(t, s.Pool, db.MediaKindFilm, "Heat")
+	c := s.LoginAs(t, u)
+	today := experiences.Today(time.Now(), u.Timezone).Format(time.DateOnly)
+
+	before := time.Now()
+	wantStatus(t, c.PostForm(itemURL(item)+"/experiences", url.Values{"mode": {"finished"}, "finished_on": {""}, "finished_today": {today}}), http.StatusSeeOther)
+	e := experiencesOf(t, s, u, item)[0]
+	if e.FinishedOn == nil || e.FinishedOn.Format(time.DateOnly) != today {
+		t.Fatalf("finished today: %+v", e)
+	}
+	if at := eventTime(t, s, e, "finished"); at.Before(before.Add(-time.Second)) {
+		t.Fatalf("today's finish recorded at %s, want now", at)
+	}
+}
+
+func TestEditClearsFinishDate(t *testing.T) {
+	s := testutil.NewServer(t)
+	u := testutil.CreateUser(t, s.Q, "alice")
+	c := s.LoginAs(t, u)
+
+	for _, state := range []db.ExperienceState{db.ExperienceStateFinished, db.ExperienceStateAbandoned} {
+		item := testutil.CreateItem(t, s.Pool, db.MediaKindBook, "Book "+string(state))
+		e := createExperience(t, s, u.ID, item.ID, db.ExperienceStateActive)
+		action := map[db.ExperienceState]string{db.ExperienceStateFinished: "/finish", db.ExperienceStateAbandoned: "/abandon"}[state]
+		wantStatus(t, c.PostForm(expURL(e, action), nil), http.StatusSeeOther)
+		if got := experiencesOf(t, s, u, item)[0]; got.FinishedOn == nil {
+			t.Fatalf("%s should default to today: %+v", action, got)
+		}
+
+		edit := c.Get(expURL(e, "/edit"))
+		wantStatus(t, edit, http.StatusOK)
+		if regexp.MustCompile(`name="finished_on"[^>]*required`).MatchString(edit.Body) {
+			t.Errorf("%s: finish date is still required on the edit page", state)
+		}
+		wantStatus(t, c.PostForm(expURL(e, "/edit"), url.Values{"started_on": {"2019-05-01"}, "visibility": {"private"}}), http.StatusSeeOther)
+		got := experiencesOf(t, s, u, item)[0]
+		if got.FinishedOn != nil || got.StartedOn.Format(time.DateOnly) != "2019-05-01" {
+			t.Fatalf("%s: clearing the finish date: %+v", state, got)
+		}
+
+		page := c.Get(itemURL(item))
+		label := map[db.ExperienceState]string{db.ExperienceStateFinished: "Finished", db.ExperienceStateAbandoned: "Abandoned"}[state]
+		if !strings.Contains(page.Body, ">Started May 1, 2019<") || strings.Contains(page.Body, "· "+label) {
+			t.Errorf("%s: date line after clearing:\n%s", state, page.Body)
+		}
+
+		wantStatus(t, c.PostForm(expURL(e, "/edit"), url.Values{"started_on": {"2019-05-03"}, "finished_on": {"2019-05-02"}, "visibility": {"private"}}), http.StatusUnprocessableEntity)
+		wantStatus(t, c.PostForm(expURL(e, "/edit"), url.Values{"finished_on": {"2999-01-01"}, "visibility": {"private"}}), http.StatusUnprocessableEntity)
+	}
+	if got := strings.Join(verbs(t, s, u), ","); got != "finished,abandoned" {
+		t.Fatalf("clearing a date should leave existing events alone and add none: %q", got)
+	}
+}
+
+func TestEditDatingUndatedFinishRecordsEventOnce(t *testing.T) {
+	s := testutil.NewServer(t)
+	u := testutil.CreateUser(t, s.Q, "alice")
+	item := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Jet Set Radio")
+	c := s.LoginAs(t, u)
+	wantStatus(t, c.PostForm(itemURL(item)+"/experiences", url.Values{"mode": {"finished"}}), http.StatusSeeOther)
+	e := experiencesOf(t, s, u, item)[0]
+
+	wantStatus(t, c.PostForm(expURL(e, "/edit"), url.Values{"finished_on": {"2020-02-03"}, "visibility": {"private"}}), http.StatusSeeOther)
+	if at := eventTime(t, s, e, "finished"); !at.Equal(time.Date(2020, 2, 3, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("dated finish recorded at %s", at)
+	}
+	wantStatus(t, c.PostForm(expURL(e, "/edit"), url.Values{"visibility": {"private"}}), http.StatusSeeOther)
+	wantStatus(t, c.PostForm(expURL(e, "/edit"), url.Values{"finished_on": {"2020-02-04"}, "visibility": {"private"}}), http.StatusSeeOther)
+	if got := strings.Join(verbs(t, s, u), ","); got != "finished" {
+		t.Fatalf("verbs %q", got)
 	}
 }

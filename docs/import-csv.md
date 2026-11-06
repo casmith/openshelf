@@ -22,7 +22,7 @@ kind,title,year,isbn13,tmdb_id,igdb_id,platform,ownership,backlog,status,started
 | `ownership` | `owned`, `borrowed`, `not_owned`. Empty leaves it unset |
 | `backlog` | `true`/`false` (also `yes`/`no`, `1`/`0`) |
 | `status` | `in_progress`, `finished`, `abandoned`. Empty means no play record unless dates are given: `finished_on` implies finished, and `started_on` alone implies in progress |
-| `started_on`, `finished_on` | `YYYY-MM-DD` |
+| `started_on`, `finished_on` | `YYYY-MM-DD`. A blank `finished_on` on a finished or abandoned row means the date is unknown: it is stored empty, never defaulted to today |
 | `rating_100` | Whole number 0–100 |
 | `review` | Review text |
 | `tags` | Separated by `;` (or `,` inside a quoted cell). Stored lowercase |
@@ -37,7 +37,7 @@ An ID column only applies to its kinds. For example, `isbn13` is ignored on a ga
 4. **Play record.** When there's a status, it adds an experience unless one with the same state and dates already exists.
 5. **Review.** When there's a rating or review text, it creates or updates your review of the item.
 
-Everything is created **private**. Journal events (`added`, `started`, `finished`/`abandoned`, `rated`/`reviewed`) are recorded for new records, dated by `started_on` / `finished_on` when given.
+Everything is created **private**. Journal events (`added`, `started`, `finished`/`abandoned`, `rated`/`reviewed`) are recorded for new records, dated by `started_on` / `finished_on` when given. A finished or abandoned row without a `finished_on` records no `finished`/`abandoned` event, so backfilled history stays out of the journal.
 
 Importing the same file again creates nothing new: every row is reported as skipped.
 

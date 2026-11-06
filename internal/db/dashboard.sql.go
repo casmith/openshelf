@@ -171,12 +171,12 @@ select m.public_id, m.kind, m.title, m.cover_image_id, x.finished_on, r.rating
 from (
   select distinct on (e.media_item_id) e.media_item_id, e.finished_on, e.updated_at, e.id
   from experiences e
-  where e.user_id = $1 and e.state = 'finished'
-  order by e.media_item_id, e.finished_on desc nulls last, e.updated_at desc, e.id desc
+  where e.user_id = $1 and e.state = 'finished' and e.finished_on is not null
+  order by e.media_item_id, e.finished_on desc, e.updated_at desc, e.id desc
 ) x
 join media_items m on m.id = x.media_item_id
 left join reviews r on r.user_id = $1 and r.media_item_id = x.media_item_id
-order by x.finished_on desc nulls last, x.updated_at desc, x.id desc
+order by x.finished_on desc, x.updated_at desc, x.id desc
 limit $2::int
 `
 
