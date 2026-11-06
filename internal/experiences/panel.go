@@ -10,6 +10,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/casmith/openshelf/internal/achievements"
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/deps"
 	"github.com/casmith/openshelf/internal/web/ui"
@@ -20,6 +21,7 @@ type panelData struct {
 	Exps  []db.Experience
 	Today string
 	Error string
+	Hint  *achievements.FinishHint // prefills "Log as finished"
 }
 
 // ItemPanel renders the viewer's experiences of item for the item detail page.
@@ -32,12 +34,17 @@ func loadPanel(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaI
 	if err != nil {
 		return nil, err
 	}
-	return panel(panelData{
-		Item:  item,
-		Exps:  exps,
-		Today: Today(d.Now(), viewer.Timezone).Format(time.DateOnly),
-		Error: errMsg,
-	}), nil
+	today := Today(d.Now(), viewer.Timezone)
+	p := panelData{Item: item, Exps: exps, Today: today.Format(time.DateOnly), Error: errMsg}
+	if _, busy := InProgress(exps); !busy {
+		if p.Hint, err = achievements.SuggestedFinishDate(ctx, d, viewer, item); err != nil {
+			return nil, err
+		}
+		if p.Hint != nil && p.Hint.Day.After(today) {
+			p.Hint = nil
+		}
+	}
+	return panel(p), nil
 }
 
 // QuickLog renders an inline progress/finish control for dashboard cards (used by S06).
@@ -98,6 +105,13 @@ func deref(f *float64) float64 {
 func fmtNum(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 
 func fmtDate(t *time.Time) string { return t.Format("Jan 2, 2006") }
+
+func hintText(h *achievements.FinishHint) string {
+	if h.Basis == achievements.BasisEnding {
+		return "From your Steam achievements: ‘" + h.Name + "’ unlocked " + fmtDate(&h.Day)
+	}
+	return "From your last Steam achievement, unlocked " + fmtDate(&h.Day) + " — clear it if that's not right."
+}
 
 func capitalize(s string) string {
 	if s == "" {

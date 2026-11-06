@@ -11,6 +11,7 @@ import (
 	"github.com/casmith/openshelf/internal/auth"
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/deps"
+	"github.com/casmith/openshelf/internal/suggestions"
 	"github.com/casmith/openshelf/internal/synchistory"
 	"github.com/casmith/openshelf/internal/web"
 	"github.com/casmith/openshelf/internal/web/form"
@@ -78,6 +79,12 @@ func index(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User)
 	if web.IsPartial(r) {
 		web.Render(w, r, http.StatusOK, libraryBody(v, src))
 		return
+	}
+	if kind == nil || *kind == db.MediaKindGame {
+		if v.Suggested, err = suggestions.Count(r.Context(), d, viewer); err != nil {
+			web.Error(w, r, d, err)
+			return
+		}
 	}
 	web.Render(w, r, http.StatusOK, libraryPage(web.PageFor(r, d, libraryTitle(kind), nav), v, src))
 }

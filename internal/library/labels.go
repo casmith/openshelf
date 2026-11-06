@@ -230,6 +230,8 @@ type libraryView struct {
 	Page    Page
 	Facets  Facets
 	Display db.RatingDisplay
+	// Suggested is the number of finish suggestions, linked from the header.
+	Suggested int
 }
 
 func (v libraryView) kindTabs() []ui.Tab {
