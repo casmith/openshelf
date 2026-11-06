@@ -1,0 +1,407 @@
+package synchistory
+
+import (
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/sync"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+func when(t *time.Time, loc *time.Location) string {
+	if t == nil {
+		return "Never"
+	}
+	return t.In(loc).Format("Jan 2, 2006 15:04")
+}
+
+func hours(minutes int32) string {
+	if minutes < 60 {
+		return strconv.Itoa(int(minutes)) + " min"
+	}
+	h := float64(minutes) / 60
+	if h >= 10 {
+		return strconv.Itoa(int(h+0.5)) + " h"
+	}
+	return strconv.FormatFloat(h, 'f', 1, 64) + " h"
+}
+
+func minutesText(s *string) string {
+	if s == nil {
+		return "none"
+	}
+	n, err := strconv.Atoi(*s)
+	if err != nil {
+		return *s
+	}
+	return hours(int32(n))
+}
+
+func fieldLabel(f *string) string {
+	if f == nil {
+		return ""
+	}
+	switch *f {
+	case sync.FieldPlayed:
+		return "Played"
+	case sync.FieldOwnership:
+		return "Ownership"
+	case sync.FieldPlaytime:
+		return "Playtime"
+	}
+	return *f
+}
+
+func valueText(field, v *string) string {
+	if v == nil {
+		return "not set"
+	}
+	if field != nil {
+		switch *field {
+		case sync.FieldPlayed:
+			if *v == "true" {
+				return "played"
+			}
+			return "not played"
+		case sync.FieldPlaytime:
+			return minutesText(v)
+		}
+	}
+	return strings.ReplaceAll(*v, "_", " ")
+}
+
+func eventText(e eventView, provider string) string {
+	switch e.Kind {
+	case sync.EventEntryCreated:
+		return "Added to your library as owned"
+	case sync.EventNeedsReview:
+		return "No catalog match: created a new item that needs review"
+	case sync.EventOwnershipSourceChanged, sync.EventPlayedSourceChanged:
+		return fieldLabel(e.Field) + " from " + provider + ": " + valueText(e.Field, e.Before) + " → " + valueText(e.Field, e.After)
+	case sync.EventPlaytimeChanged:
+		return "Playtime: " + valueText(e.Field, e.Before) + " → " + valueText(e.Field, e.After)
+	case sync.EventAchievementUnlocked:
+		name := ""
+		if e.After != nil {
+			name = *e.After
+		}
+		return "Unlocked achievement " + name
+	case sync.EventOverrideRespected:
+		return provider + " says " + valueText(e.Field, e.Before) + "; you said " + valueText(e.Field, e.After)
+	case sync.EventExcludedSkipped:
+		return "Skipped: excluded from sync"
+	}
+	return e.Kind
+}
+
+func runStatusLabel(s db.SyncRunStatus) string {
+	switch s {
+	case db.SyncRunStatusRunning:
+		return "Running"
+	case db.SyncRunStatusSucceeded:
+		return "Succeeded"
+	case db.SyncRunStatusPartial:
+		return "Partial"
+	case db.SyncRunStatusFailed:
+		return "Failed"
+	}
+	return string(s)
+}
+
+func countsSummary(r runView) string {
+	c := r.Counts
+	var parts []string
+	add := func(n int, label string) {
+		if n > 0 {
+			parts = append(parts, strconv.Itoa(n)+" "+label)
+		}
+	}
+	add(c.Games, "games")
+	add(c.EntriesCreated, "added")
+	add(c.EntriesUpdated, "updated")
+	add(c.ItemsCreated, "new items")
+	add(c.Excluded, "excluded")
+	add(c.Skipped, "skipped")
+	add(c.Unlocks, "unlocks")
+	if len(parts) == 0 {
+		return "No changes"
+	}
+	return strings.Join(parts, " · ")
+}
+
+func runURL(v historyView, r runView) string {
+	return historyURL(v.Account) + "?run=" + r.PublicID.String()
+}
+
+func itemHref(e eventView) string {
+	if e.ItemPublicID == nil {
+		return ""
+	}
+	return "/items/" + e.ItemPublicID.String()
+}
+
+func excludeDeleteURL(a db.ConnectedAccount, key string) string {
+	return accountPath(a, "/exclusions/"+url.PathEscape(key))
+}
+
+templ historyPage(p ui.Page, v historyView) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Sync history", v.Provider+" · "+accountName(v.Account)) {
+			@ui.LinkButton("ghost", connectionsURL) {
+				Back to connections
+			}
+			@ui.LinkButton("secondary", accountPath(v.Account, "/unlink")) {
+				Unlink
+			}
+		}
+		<div class="max-w-4xl space-y-6">
+			@ui.Tabs([]ui.Tab{
+				{Label: "Runs", Href: historyURL(v.Account), Active: v.Filter == ""},
+				{Label: "Needs review", Href: historyURL(v.Account) + "?filter=" + filterReview, Active: v.Filter == filterReview},
+			})
+			if v.Filter == filterReview {
+				if len(v.Review) == 0 {
+					@ui.EmptyState("Nothing to review", "Every imported game matched a catalog item.")
+				} else {
+					@ui.Card("") {
+						@eventList(v, v.Review)
+					}
+				}
+			} else {
+				if len(v.Runs) == 0 {
+					@ui.EmptyState("No syncs yet", "Runs appear here after the first sync.")
+				}
+				<ul class="space-y-3">
+					for _, r := range v.Runs {
+						@runItem(v, r)
+					}
+				</ul>
+				<nav class="flex justify-between" aria-label="Pagination">
+					if v.Paged {
+						@ui.LinkButton("secondary", historyURL(v.Account)) {
+							Newest
+						}
+					} else {
+						<span></span>
+					}
+					if v.Older != "" {
+						@ui.LinkButton("secondary", v.Older) {
+							Older
+						}
+					}
+				</nav>
+			}
+			<section aria-labelledby="exclusions" class="space-y-3">
+				<h2 id="exclusions" class="font-semibold">Excluded from sync</h2>
+				if len(v.Excluded) == 0 {
+					<p class="text-sm text-muted">Nothing is excluded. Exclude a game from its page to stop importing it.</p>
+				} else {
+					@ui.Table() {
+						<tbody>
+							for _, x := range v.Excluded {
+								<tr data-exclusion={ x.ProviderItemKey }>
+									<td>
+										if x.ItemPublicID != nil && x.ItemTitle != nil {
+											<a href={ templ.SafeURL("/items/" + x.ItemPublicID.String()) } class="font-medium hover:text-accent">{ *x.ItemTitle }</a>
+										} else {
+											<span class="text-muted">{ x.ProviderItemKey }</span>
+										}
+									</td>
+									<td class="whitespace-nowrap text-muted">{ x.CreatedAt.In(v.Loc).Format("Jan 2, 2006") }</td>
+									<td class="text-right">
+										<form method="post" action={ templ.SafeURL(excludeDeleteURL(v.Account, x.ProviderItemKey) + "/delete") } hx-delete={ excludeDeleteURL(v.Account, x.ProviderItemKey) }>
+											@ui.Button("ghost", templ.Attributes{"type": "submit"}) {
+												Include again
+											}
+										</form>
+									</td>
+								</tr>
+							}
+						</tbody>
+					}
+				}
+			</section>
+		</div>
+	}
+}
+
+templ runItem(v historyView, r runView) {
+	<li data-run={ r.PublicID.String() }>
+		<details
+			class="rounded-lg border border-line bg-surface"
+			open?={ r.Open }
+			if !r.Open && r.EventCount > 0 {
+				hx-get={ runURL(v, r) }
+				hx-trigger="toggle once"
+				hx-target="find .run-events"
+				hx-swap="innerHTML"
+			}
+		>
+			<summary class="flex cursor-pointer flex-wrap items-center gap-3 px-4 py-3">
+				<span class="font-medium">{ r.StartedAt.In(v.Loc).Format("Jan 2, 2006 15:04") }</span>
+				@ui.Badge(runStatusLabel(r.Status))
+				<span class="text-sm text-muted">{ countsSummary(r) }</span>
+				<span class="ml-auto text-xs text-muted">{ strconv.Itoa(int(r.EventCount)) } events</span>
+			</summary>
+			<div class="space-y-3 border-t border-line px-4 py-3">
+				if len(r.Warnings) > 0 {
+					<ul class="list-disc space-y-1 pl-5 text-sm text-muted">
+						for _, w := range r.Warnings {
+							<li>{ w }</li>
+						}
+					</ul>
+				}
+				if r.Error != nil {
+					<p class="text-sm text-danger">{ *r.Error }</p>
+				}
+				<div class="run-events">
+					if r.Open {
+						@eventList(v, r.Events)
+					} else if r.EventCount > 0 {
+						<a href={ templ.SafeURL(runURL(v, r)) } class="text-sm text-accent">Show events</a>
+					} else {
+						<p class="text-sm text-muted">No changes recorded.</p>
+					}
+				</div>
+			</div>
+		</details>
+	</li>
+}
+
+templ eventList(v historyView, events []eventView) {
+	if len(events) == 0 {
+		<p class="text-sm text-muted">No changes recorded.</p>
+	} else {
+		<ul class="divide-y divide-line text-sm">
+			for _, e := range events {
+				<li class={ "flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2", templ.KV("-mx-2 rounded-md bg-accent/10 px-2", e.RespectedOverride) } data-kind={ e.Kind }>
+					if href := itemHref(e); href != "" && e.ItemTitle != nil {
+						<a href={ templ.SafeURL(href) } class="font-medium hover:text-accent">{ *e.ItemTitle }</a>
+					} else if e.ProviderItemKey != nil {
+						<span class="font-medium">{ *e.ProviderItemKey }</span>
+					}
+					<span>{ eventText(e, v.Provider) }</span>
+					if e.RespectedOverride {
+						<span class="inline-flex items-center gap-1 font-medium text-accent">
+							@ui.Icon("check", "h-4 w-4")
+							Your choice was kept
+						</span>
+					}
+				</li>
+			}
+		</ul>
+		if len(events) >= v.EventsCap {
+			<p class="mt-2 text-xs text-muted">Showing the first { strconv.Itoa(v.EventsCap) } events.</p>
+		}
+	}
+}
+
+templ itemPanel(v panelView) {
+	@ui.Card("") {
+		<div id="sync-panel">
+			<h2 class="flex items-center gap-2 text-lg font-semibold">
+				@ui.Icon("download", "h-5 w-5 text-muted")
+				Synced sources
+			</h2>
+			<p class="mt-1 text-xs text-muted">What your linked accounts report. These never change your own status.</p>
+			<ul class="mt-3 space-y-3">
+				for _, r := range v.Rows {
+					<li class="rounded-md border border-line p-3" data-source={ r.ProviderItemKey }>
+						<div class="flex flex-wrap items-center gap-2">
+							<span class="font-medium">{ r.ProviderName }</span>
+							<span class="text-xs text-muted">
+								if r.DisplayName != "" {
+									{ r.DisplayName }
+								} else {
+									{ r.ExternalAccountID }
+								}
+							</span>
+							if r.Excluded {
+								@ui.Badge("Excluded from sync")
+							}
+						</div>
+						<dl class="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+							<div class="flex gap-2"><dt class="text-muted">Playtime</dt><dd>{ hours(r.MinutesTotal) }</dd></div>
+							if r.Minutes2weeks != nil {
+								<div class="flex gap-2"><dt class="text-muted">Last two weeks</dt><dd>{ hours(*r.Minutes2weeks) }</dd></div>
+							}
+							<div class="flex gap-2"><dt class="text-muted">Last played</dt><dd>{ when(r.LastPlayedAt, v.Loc) }</dd></div>
+							<div class="flex gap-2"><dt class="text-muted">Last sync</dt><dd>{ when(r.LastSyncedAt, v.Loc) }</dd></div>
+							if r.Total > 0 {
+								<div class="flex gap-2"><dt class="text-muted">Achievements</dt><dd>{ strconv.Itoa(int(r.Unlocked)) } / { strconv.Itoa(int(r.Total)) }</dd></div>
+							}
+						</dl>
+						<div class="mt-3 flex flex-wrap items-center gap-3 text-sm">
+							if r.Excluded {
+								<form method="post" action={ templ.SafeURL(sourceIncludeURL(r) + "/delete") } hx-delete={ sourceIncludeURL(r) } class="inline">
+									<input type="hidden" name="next" value={ itemURL(v.Item) }/>
+									@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+										Include again
+									}
+								</form>
+							} else {
+								<form method="post" action={ templ.SafeURL("/connections/" + r.AccountPublicID.String() + "/exclusions") } hx-confirm="Stop importing this game from this account? What's already imported stays." class="inline">
+									<input type="hidden" name="key" value={ r.ProviderItemKey }/>
+									<input type="hidden" name="item" value={ v.Item.PublicID.String() }/>
+									<input type="hidden" name="next" value={ itemURL(v.Item) }/>
+									@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+										Exclude from sync
+									}
+								</form>
+							}
+							<a href={ templ.SafeURL(connectionsURL + "/" + r.AccountPublicID.String() + "/history") } class="text-muted hover:text-fg">History</a>
+						</div>
+					</li>
+				}
+			</ul>
+		</div>
+	}
+}
+
+func itemURL(item db.MediaItem) string { return "/items/" + item.PublicID.String() }
+
+func sourceIncludeURL(r sourceRow) string {
+	return "/connections/" + r.AccountPublicID.String() + "/exclusions/" + url.PathEscape(r.ProviderItemKey)
+}
+
+templ unlinkPage(p ui.Page, v unlinkView) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Unlink "+v.Provider+" account", accountName(v.Account)) {
+			@ui.LinkButton("ghost", historyURL(v.Account)) {
+				Cancel
+			}
+		}
+		@ui.Card("max-w-2xl space-y-4") {
+			<p class="text-sm">Unlinking stops syncing and deletes this account's sync history, exclusions, playtime, and achievement unlocks. Catalog items are never deleted.</p>
+			<p class="text-sm">
+				This account added { strconv.Itoa(len(v.Remove) + len(v.Keep)) } { plural(len(v.Remove)+len(v.Keep), "entry", "entries") } to your library.
+				if len(v.Remove) > 0 {
+					Removing imported entries deletes { strconv.Itoa(len(v.Remove)) } you haven't changed.
+				}
+			</p>
+			if len(v.Keep) > 0 {
+				<div>
+					<p class="text-sm font-medium">Always kept, because you changed them or another linked account has them:</p>
+					<ul class="mt-1 list-disc pl-5 text-sm text-muted">
+						for _, e := range v.Keep {
+							<li data-keep={ e.PublicID.String() }>
+								<a href={ templ.SafeURL("/items/" + e.ItemPublicID.String()) } class="hover:text-fg">{ e.Title }</a>
+							</li>
+						}
+					</ul>
+				</div>
+			}
+			<form method="post" action={ templ.SafeURL(accountPath(v.Account, "/unlink")) } hx-boost="false" class="flex flex-wrap gap-2">
+				@ui.Button("secondary", templ.Attributes{"type": "submit", "name": "mode", "value": "keep"}) {
+					Keep imported entries
+				}
+				@ui.Button("danger", templ.Attributes{"type": "submit", "name": "mode", "value": "remove"}) {
+					Remove imported entries
+				}
+			</form>
+		}
+	}
+}
