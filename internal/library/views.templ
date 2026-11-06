@@ -2,6 +2,8 @@ package library
 
 import (
 	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/images"
@@ -15,13 +17,13 @@ const (
 	compactLabel = "mb-1 block text-xs font-medium text-muted"
 )
 
-templ libraryPage(p ui.Page, v libraryView) {
+templ libraryPage(p ui.Page, v libraryView, src sources) {
 	@ui.Layout(p) {
 		@ui.PageHeader(p.Title, "") {
 			@viewToggle(v)
 			@addLinks("secondary")
 		}
-		@libraryBody(v)
+		@libraryBody(v, src)
 	}
 }
 
@@ -61,7 +63,7 @@ templ filterDate(name, label, value string) {
 	</div>
 }
 
-templ libraryBody(v libraryView) {
+templ libraryBody(v libraryView, src sources) {
 	<div id="library">
 		@ui.Tabs(v.kindTabs())
 		<form
@@ -112,14 +114,14 @@ templ libraryBody(v libraryView) {
 				}
 			}
 		} else if v.Filter.View == "table" {
-			@entryTable(v)
+			@entryTable(v, src)
 		} else {
 			@ui.CoverGrid() {
 				for _, e := range v.Page.Entries {
 					@ui.CoverCard(ui.CoverCardProps{
 						Href:     itemURL(e.ItemPublicID),
 						Title:    e.Title,
-						Subtitle: entrySubtitle(e),
+						Subtitle: cardSubtitle(e, src),
 						CoverURL: images.CoverURL(e.CoverImageID, e.Kind, images.Card),
 						Kind:     string(e.Kind),
 						Chip:     statusChip(e),
@@ -131,7 +133,7 @@ templ libraryBody(v libraryView) {
 	</div>
 }
 
-templ entryTable(v libraryView) {
+templ entryTable(v libraryView, src sources) {
 	@ui.Table() {
 		<thead>
 			<tr>
@@ -140,6 +142,9 @@ templ entryTable(v libraryView) {
 				<th>Ownership</th>
 				<th>Status</th>
 				<th>Rating</th>
+				if len(src.Counts) > 0 {
+					<th>Achievements</th>
+				}
 				<th>Added</th>
 			</tr>
 		</thead>
@@ -153,15 +158,21 @@ templ entryTable(v libraryView) {
 						</a>
 					</td>
 					<td class="text-muted">{ entrySubtitle(e) }</td>
-					<td>{ ownershipLabel(e.Ownership) }</td>
+					<td>{ listOwnershipLabel(e, src) }</td>
 					<td>
 						if c := statusChip(e); c != "" {
 							@ui.Badge(c)
+						}
+						if l := listPlayedLabel(e, src); l != "" {
+							@ui.Badge(l)
 						}
 					</td>
 					<td>
 						@reviews.RatingDisplay(v.Display, e.Rating)
 					</td>
+					if len(src.Counts) > 0 {
+						<td class="whitespace-nowrap text-muted">{ achievementText(src, e.MediaItemID) }</td>
+					}
 					<td class="whitespace-nowrap text-muted">{ e.CreatedAt.Format("2006-01-02") }</td>
 				</tr>
 			}
@@ -176,6 +187,7 @@ type panelView struct {
 	Entries  []db.LibraryItemEntriesRow
 	Editions []db.ListEditionsForItemRow
 	Viewer   db.User
+	Src      sources
 }
 
 func entryEditionLabel(e db.LibraryItemEntriesRow) string {
@@ -197,7 +209,7 @@ templ itemPanel(v panelView) {
 			}
 			<ul class="mt-3 space-y-4">
 				for _, e := range v.Entries {
-					@panelEntry(e)
+					@panelEntry(e, v.Src)
 				}
 			</ul>
 			if len(v.Entries) == 0 || len(v.Editions) > 0 {
@@ -216,16 +228,25 @@ templ itemPanel(v panelView) {
 	}
 }
 
-templ panelEntry(e db.LibraryItemEntriesRow) {
+templ panelEntry(e db.LibraryItemEntriesRow, src sources) {
 	<li class="rounded-md border border-line p-3" data-entry={ e.PublicID.String() }>
 		<div class="flex flex-wrap items-center gap-2">
 			<span class="font-medium">{ entryEditionLabel(e) }</span>
-			@ui.Badge(ownershipLabel(e.EffectiveOwnership))
+			@ui.Badge(panelOwnershipLabel(e, src))
 			if e.Backlog {
 				@ui.Badge("Backlog")
 			}
 			@ui.Badge(visibilityLabel(e.Visibility))
 		</div>
+		if ownershipDiffers(e) {
+			<div class="mt-2 flex flex-wrap items-center gap-2 text-sm" data-override="ownership">
+				<span>{ ownershipLabel(*e.OwnershipUser) } (you) · { src.name(e.SourceProvider) } says { strings.ToLower(ownershipLabel(*e.OwnershipSource)) }</span>
+				<form method="post" action={ templ.SafeURL("/library/" + e.PublicID.String() + "/ownership") } class="inline">
+					<input type="hidden" name="ownership" value="reset"/>
+					<button type="submit" class="rounded-md border border-line px-2 py-0.5 text-xs hover:bg-surface-2">Reset to source</button>
+				</form>
+			</div>
+		}
 		if len(e.Tags) > 0 {
 			<p class="mt-1 text-xs text-muted">
 				for i, t := range e.Tags {
@@ -243,19 +264,12 @@ templ panelEntry(e db.LibraryItemEntriesRow) {
 			<p class="mt-2 whitespace-pre-line text-sm">{ *e.Notes }</p>
 		}
 		<div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-			<span class="text-muted">
-				if e.Played {
-					Played
-				} else {
-					Not played
-				}
-				if e.PlayedUser != nil {
-					(set by you)
-				}
-			</span>
+			<span class="text-muted" data-played>{ panelPlayedLabel(e, src) }</span>
 			@playedButton(e, "true", "Played", e.PlayedUser != nil && *e.PlayedUser)
 			@playedButton(e, "false", "Not played", e.PlayedUser != nil && !*e.PlayedUser)
-			if e.PlayedUser != nil {
+			if playedDiffers(e) {
+				@playedButton(e, "reset", "Reset to source", false)
+			} else if e.PlayedUser != nil {
 				@playedButton(e, "reset", "Reset", false)
 			}
 			<span class="ml-auto flex gap-2">
@@ -263,7 +277,7 @@ templ panelEntry(e db.LibraryItemEntriesRow) {
 					@ui.Icon("edit", "h-4 w-4")
 					Edit
 				</a>
-				<form method="post" action={ templ.SafeURL("/library/" + e.PublicID.String() + "/delete") } hx-boost="false" class="inline">
+				<form method="post" action={ templ.SafeURL("/library/" + e.PublicID.String() + "/delete") } hx-confirm={ deleteConfirm(e, src) } class="inline">
 					<button type="submit" class="inline-flex items-center gap-1 text-muted hover:text-danger">
 						@ui.Icon("trash", "h-4 w-4")
 						Remove
@@ -364,4 +378,101 @@ templ editPage(p ui.Page, entry db.LibraryGetEntryForEditRow, f *form.Form) {
 			</form>
 		}
 	}
+}
+
+// Source labels (ADR 0002): say where an effective value came from, and show both
+// values when the user's choice differs from the source.
+
+func ownershipDiffers(e db.LibraryItemEntriesRow) bool {
+	return e.OwnershipUser != nil && e.OwnershipSource != nil && *e.OwnershipUser != *e.OwnershipSource
+}
+
+func playedDiffers(e db.LibraryItemEntriesRow) bool {
+	return e.PlayedUser != nil && e.PlayedSource != nil && *e.PlayedUser != *e.PlayedSource
+}
+
+func sourceOwnership(user, source *db.Ownership, provider string, src sources) string {
+	if user == nil && source != nil {
+		return ownershipLabel(*source) + " · from " + src.name(provider)
+	}
+	return ""
+}
+
+func sourcePlayed(user, source *bool, provider string, src sources) string {
+	if user != nil || source == nil {
+		return ""
+	}
+	if *source {
+		return "Played · inferred from " + src.name(provider)
+	}
+	return "Not played · inferred from " + src.name(provider)
+}
+
+func panelOwnershipLabel(e db.LibraryItemEntriesRow, src sources) string {
+	if l := sourceOwnership(e.OwnershipUser, e.OwnershipSource, e.SourceProvider, src); l != "" {
+		return l
+	}
+	return ownershipLabel(e.EffectiveOwnership)
+}
+
+func playedWord(b bool) string {
+	if b {
+		return "Played"
+	}
+	return "Not played"
+}
+
+func panelPlayedLabel(e db.LibraryItemEntriesRow, src sources) string {
+	if playedDiffers(e) {
+		return playedWord(*e.PlayedUser) + " (you) · " + src.name(e.SourceProvider) + " says " + strings.ToLower(playedWord(*e.PlayedSource))
+	}
+	if l := sourcePlayed(e.PlayedUser, e.PlayedSource, e.SourceProvider, src); l != "" {
+		return l
+	}
+	if e.PlayedUser != nil {
+		return playedWord(e.Played) + " (set by you)"
+	}
+	return playedWord(e.Played)
+}
+
+func listOwnershipLabel(e db.LibraryListEntriesRow, src sources) string {
+	if l := sourceOwnership(e.OwnershipUser, e.OwnershipSource, e.SourceProvider, src); l != "" {
+		return l
+	}
+	return ownershipLabel(e.Ownership)
+}
+
+func listPlayedLabel(e db.LibraryListEntriesRow, src sources) string {
+	return sourcePlayed(e.PlayedUser, e.PlayedSource, e.SourceProvider, src)
+}
+
+func achievementText(src sources, itemID int64) string {
+	c, ok := src.Counts[itemID]
+	if !ok || c.Total == 0 {
+		return ""
+	}
+	return strconv.Itoa(c.Unlocked) + "/" + strconv.Itoa(c.Total) + " achievements"
+}
+
+func cardSubtitle(e db.LibraryListEntriesRow, src sources) string {
+	var parts []string
+	if l := sourceOwnership(e.OwnershipUser, e.OwnershipSource, e.SourceProvider, src); l != "" {
+		parts = append(parts, l)
+	} else if l := listPlayedLabel(e, src); l != "" {
+		parts = append(parts, l)
+	} else if s := entrySubtitle(e); s != "" {
+		parts = append(parts, s)
+	}
+	if a := achievementText(src, e.MediaItemID); a != "" {
+		parts = append(parts, a)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func deleteConfirm(e db.LibraryItemEntriesRow, src sources) string {
+	if e.Synced {
+		return "Remove this from your library? It was imported from " + src.name(e.SourceProvider) +
+			", so it will also be excluded from future syncs and stay removed. You can include it again from the sync history."
+	}
+	return "Remove this from your library?"
 }

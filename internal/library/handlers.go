@@ -6,10 +6,12 @@ import (
 	"strconv"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/casmith/openshelf/internal/auth"
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/deps"
+	"github.com/casmith/openshelf/internal/synchistory"
 	"github.com/casmith/openshelf/internal/web"
 	"github.com/casmith/openshelf/internal/web/form"
 )
@@ -32,6 +34,7 @@ func Register(mux *http.ServeMux, d *deps.Deps) {
 	mux.Handle("DELETE /library/{entry_id}", h(remove))
 	mux.Handle("POST /library/{entry_id}/delete", h(remove))
 	mux.Handle("POST /library/{entry_id}/played", h(setPlayed))
+	mux.Handle("POST /library/{entry_id}/ownership", h(setOwnership))
 }
 
 func index(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User) {
@@ -66,12 +69,17 @@ func index(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User)
 		web.Error(w, r, d, err)
 		return
 	}
-	v := libraryView{Path: r.URL.Path, Filter: f, Page: page, Facets: facets, Display: viewer.RatingDisplay}
-	if web.IsPartial(r) {
-		web.Render(w, r, http.StatusOK, libraryBody(v))
+	src, err := loadSources(r.Context(), d, viewer, page.Entries)
+	if err != nil {
+		web.Error(w, r, d, err)
 		return
 	}
-	web.Render(w, r, http.StatusOK, libraryPage(web.PageFor(r, d, libraryTitle(kind), nav), v))
+	v := libraryView{Path: r.URL.Path, Filter: f, Page: page, Facets: facets, Display: viewer.RatingDisplay}
+	if web.IsPartial(r) {
+		web.Render(w, r, http.StatusOK, libraryBody(v, src))
+		return
+	}
+	web.Render(w, r, http.StatusOK, libraryPage(web.PageFor(r, d, libraryTitle(kind), nav), v, src))
 }
 
 // parseEntry validates the shared entry fields.
@@ -220,7 +228,14 @@ func remove(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User
 	if !ok {
 		return
 	}
-	itemPublicID, err := d.Q.LibraryDeleteEntry(r.Context(), db.LibraryDeleteEntryParams{EntryID: id, UserID: viewer.ID})
+	var itemPublicID uuid.UUID
+	err := d.WithTx(r.Context(), func(q *db.Queries, _ pgx.Tx) error {
+		var err error
+		if itemPublicID, err = q.LibraryDeleteEntry(r.Context(), db.LibraryDeleteEntryParams{EntryID: id, UserID: viewer.ID}); err != nil {
+			return err
+		}
+		return synchistory.ExcludeRemovedItem(r.Context(), q, viewer, itemPublicID)
+	})
 	if err != nil {
 		web.Error(w, r, d, err)
 		return
@@ -254,6 +269,34 @@ func setPlayed(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.U
 		return
 	}
 	itemPublicID, err := d.Q.LibrarySetPlayed(r.Context(), db.LibrarySetPlayedParams{EntryID: id, UserID: viewer.ID, PlayedUser: played})
+	if err != nil {
+		web.Error(w, r, d, err)
+		return
+	}
+	web.Redirect(w, r, itemURL(itemPublicID))
+}
+
+// setOwnership writes only ownership_user; "reset" clears it so the source value applies.
+func setOwnership(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User) {
+	id, ok := entryID(w, r, d)
+	if !ok {
+		return
+	}
+	f, err := form.Parse(w, r)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	var own *db.Ownership
+	if v := f.Get("ownership"); v != "reset" {
+		o := db.Ownership(v)
+		if !o.Valid() {
+			http.Error(w, "ownership must be owned, borrowed, not_owned, or reset", http.StatusUnprocessableEntity)
+			return
+		}
+		own = &o
+	}
+	itemPublicID, err := d.Q.LibrarySetOwnership(r.Context(), db.LibrarySetOwnershipParams{EntryID: id, UserID: viewer.ID, OwnershipUser: own})
 	if err != nil {
 		web.Error(w, r, d, err)
 		return

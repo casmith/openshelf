@@ -230,7 +230,10 @@ select le.id, le.public_id, le.user_id, le.media_item_id, le.edition_id, le.owne
        e.public_id as edition_public_id, e.title as edition_title, e.format as edition_format, e.region as edition_region,
        p.name as platform_name, p.short_name as platform_short_name,
        coalesce(le.ownership_user, le.ownership_source, 'not_owned')::ownership as effective_ownership,
-       coalesce(le.played_user, le.played_source, x.played_by_experience)::boolean as played
+       coalesce(le.played_user, le.played_source, x.played_by_experience)::boolean as played,
+       coalesce(src.provider, '')::text as source_provider,
+       exists(select 1 from external_playtime ep join connected_accounts a on a.id = ep.account_id
+              where ep.media_item_id = le.media_item_id and a.user_id = le.user_id)::boolean as synced
 from library_entries le
 left join editions e on e.id = le.edition_id
 left join platforms p on p.id = e.platform_id
@@ -239,6 +242,13 @@ cross join lateral (
   from experiences ex
   where ex.user_id = le.user_id and ex.media_item_id = le.media_item_id
 ) x
+left join lateral (
+  select a.provider from sync_events ev
+  join connected_accounts a on a.id = ev.account_id
+  where ev.library_entry_id = le.id and ev.user_id = le.user_id
+  order by ev.id
+  limit 1
+) src on true
 where le.user_id = $1 and le.media_item_id = $2
 order by le.edition_id nulls first, le.created_at
 `
@@ -273,6 +283,8 @@ type LibraryItemEntriesRow struct {
 	PlatformShortName  *string
 	EffectiveOwnership Ownership
 	Played             bool
+	SourceProvider     string
+	Synced             bool
 }
 
 func (q *Queries) LibraryItemEntries(ctx context.Context, arg LibraryItemEntriesParams) ([]LibraryItemEntriesRow, error) {
@@ -309,6 +321,8 @@ func (q *Queries) LibraryItemEntries(ctx context.Context, arg LibraryItemEntries
 			&i.PlatformShortName,
 			&i.EffectiveOwnership,
 			&i.Played,
+			&i.SourceProvider,
+			&i.Synced,
 		); err != nil {
 			return nil, err
 		}
@@ -322,8 +336,9 @@ func (q *Queries) LibraryItemEntries(ctx context.Context, arg LibraryItemEntries
 
 const libraryListEntries = `-- name: LibraryListEntries :many
 with base as (
-  select le.public_id, le.created_at, le.tags, le.backlog,
+  select le.public_id, le.created_at, le.tags, le.backlog, le.media_item_id,
          coalesce(le.ownership_user, le.ownership_source, 'not_owned')::ownership as ownership,
+         le.ownership_user, le.played_user, le.ownership_source, le.played_source, coalesce(src.provider, '')::text as source_provider,
          m.public_id as item_public_id, m.kind, m.title, m.sort_title, m.release_date, m.release_year, m.genres,
          coalesce(e.cover_image_id, m.cover_image_id) as cover_image_id,
          e.format as edition_format, p.slug as platform_slug, p.name as platform_name, p.short_name as platform_short_name,
@@ -342,6 +357,14 @@ with base as (
     from experiences ex
     where ex.user_id = le.user_id and ex.media_item_id = le.media_item_id
   ) x
+  left join lateral (
+    select a.provider from sync_events ev
+    join connected_accounts a on a.id = ev.account_id
+    where (le.ownership_source is not null or le.played_source is not null)
+      and ev.library_entry_id = le.id and ev.user_id = le.user_id
+    order by ev.id
+    limit 1
+  ) src on true
   where le.user_id = $10
     and ($11::media_kind is null or m.kind = $11::media_kind)
     and ($12::text is null or p.slug = $12::text)
@@ -354,7 +377,7 @@ with base as (
     and ($20::date is null or (le.created_at at time zone $19::text)::date <= $20::date)
 ),
 keyed as (
-  select b.public_id, b.created_at, b.tags, b.backlog, b.ownership, b.item_public_id, b.kind, b.title, b.sort_title, b.release_date, b.release_year, b.genres, b.cover_image_id, b.edition_format, b.platform_slug, b.platform_name, b.platform_short_name, b.rating, b.in_progress, b.finished, b.played,
+  select b.public_id, b.created_at, b.tags, b.backlog, b.media_item_id, b.ownership, b.ownership_user, b.played_user, b.ownership_source, b.played_source, b.source_provider, b.item_public_id, b.kind, b.title, b.sort_title, b.release_date, b.release_year, b.genres, b.cover_image_id, b.edition_format, b.platform_slug, b.platform_name, b.platform_short_name, b.rating, b.in_progress, b.finished, b.played,
          (b.backlog and not b.in_progress and not b.finished)::boolean as in_backlog,
          (case $21::text
             when 'added' then extract(epoch from b.created_at)::float8
@@ -365,7 +388,8 @@ keyed as (
          lower(b.sort_title)::text as k_text
   from base b
 )
-select k.public_id, k.created_at, k.tags, k.ownership, k.item_public_id, k.kind, k.title, k.release_date, k.release_year,
+select k.public_id, k.created_at, k.tags, k.ownership, k.media_item_id,
+       k.ownership_user, k.played_user, k.ownership_source, k.played_source, k.source_provider, k.item_public_id, k.kind, k.title, k.release_date, k.release_year,
        k.cover_image_id, k.edition_format, k.platform_name, k.platform_short_name, k.rating,
        k.in_progress, k.finished, k.played, k.in_backlog, k.k_num, k.k_text
 from keyed k
@@ -421,6 +445,12 @@ type LibraryListEntriesRow struct {
 	CreatedAt         time.Time
 	Tags              []string
 	Ownership         Ownership
+	MediaItemID       int64
+	OwnershipUser     *Ownership
+	PlayedUser        *bool
+	OwnershipSource   *Ownership
+	PlayedSource      *bool
+	SourceProvider    string
 	ItemPublicID      uuid.UUID
 	Kind              MediaKind
 	Title             string
@@ -478,6 +508,12 @@ func (q *Queries) LibraryListEntries(ctx context.Context, arg LibraryListEntries
 			&i.CreatedAt,
 			&i.Tags,
 			&i.Ownership,
+			&i.MediaItemID,
+			&i.OwnershipUser,
+			&i.PlayedUser,
+			&i.OwnershipSource,
+			&i.PlayedSource,
+			&i.SourceProvider,
 			&i.ItemPublicID,
 			&i.Kind,
 			&i.Title,
@@ -503,6 +539,29 @@ func (q *Queries) LibraryListEntries(ctx context.Context, arg LibraryListEntries
 		return nil, err
 	}
 	return items, nil
+}
+
+const librarySetOwnership = `-- name: LibrarySetOwnership :one
+with u as (
+  update library_entries
+  set ownership_user = $1, updated_at = now()
+  where library_entries.public_id = $2::uuid and library_entries.user_id = $3::bigint
+  returning media_item_id
+)
+select m.public_id from u join media_items m on m.id = u.media_item_id
+`
+
+type LibrarySetOwnershipParams struct {
+	OwnershipUser *Ownership
+	EntryID       uuid.UUID
+	UserID        int64
+}
+
+func (q *Queries) LibrarySetOwnership(ctx context.Context, arg LibrarySetOwnershipParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, librarySetOwnership, arg.OwnershipUser, arg.EntryID, arg.UserID)
+	var public_id uuid.UUID
+	err := row.Scan(&public_id)
+	return public_id, err
 }
 
 const librarySetPlayed = `-- name: LibrarySetPlayed :one

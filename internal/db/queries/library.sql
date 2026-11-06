@@ -2,8 +2,9 @@
 -- Derived values follow docs/data-model.md. k_num/k_text are the keyset sort keys;
 -- null_key places missing release dates and ratings last in either direction.
 with base as (
-  select le.public_id, le.created_at, le.tags, le.backlog,
+  select le.public_id, le.created_at, le.tags, le.backlog, le.media_item_id,
          coalesce(le.ownership_user, le.ownership_source, 'not_owned')::ownership as ownership,
+         le.ownership_user, le.played_user, le.ownership_source, le.played_source, coalesce(src.provider, '')::text as source_provider,
          m.public_id as item_public_id, m.kind, m.title, m.sort_title, m.release_date, m.release_year, m.genres,
          coalesce(e.cover_image_id, m.cover_image_id) as cover_image_id,
          e.format as edition_format, p.slug as platform_slug, p.name as platform_name, p.short_name as platform_short_name,
@@ -22,6 +23,14 @@ with base as (
     from experiences ex
     where ex.user_id = le.user_id and ex.media_item_id = le.media_item_id
   ) x
+  left join lateral (
+    select a.provider from sync_events ev
+    join connected_accounts a on a.id = ev.account_id
+    where (le.ownership_source is not null or le.played_source is not null)
+      and ev.library_entry_id = le.id and ev.user_id = le.user_id
+    order by ev.id
+    limit 1
+  ) src on true
   where le.user_id = @user_id
     and (sqlc.narg(kind)::media_kind is null or m.kind = sqlc.narg(kind)::media_kind)
     and (sqlc.narg(platform)::text is null or p.slug = sqlc.narg(platform)::text)
@@ -45,7 +54,8 @@ keyed as (
          lower(b.sort_title)::text as k_text
   from base b
 )
-select k.public_id, k.created_at, k.tags, k.ownership, k.item_public_id, k.kind, k.title, k.release_date, k.release_year,
+select k.public_id, k.created_at, k.tags, k.ownership, k.media_item_id,
+       k.ownership_user, k.played_user, k.ownership_source, k.played_source, k.source_provider, k.item_public_id, k.kind, k.title, k.release_date, k.release_year,
        k.cover_image_id, k.edition_format, k.platform_name, k.platform_short_name, k.rating,
        k.in_progress, k.finished, k.played, k.in_backlog, k.k_num, k.k_text
 from keyed k
@@ -106,7 +116,10 @@ select le.*,
        e.public_id as edition_public_id, e.title as edition_title, e.format as edition_format, e.region as edition_region,
        p.name as platform_name, p.short_name as platform_short_name,
        coalesce(le.ownership_user, le.ownership_source, 'not_owned')::ownership as effective_ownership,
-       coalesce(le.played_user, le.played_source, x.played_by_experience)::boolean as played
+       coalesce(le.played_user, le.played_source, x.played_by_experience)::boolean as played,
+       coalesce(src.provider, '')::text as source_provider,
+       exists(select 1 from external_playtime ep join connected_accounts a on a.id = ep.account_id
+              where ep.media_item_id = le.media_item_id and a.user_id = le.user_id)::boolean as synced
 from library_entries le
 left join editions e on e.id = le.edition_id
 left join platforms p on p.id = e.platform_id
@@ -115,6 +128,13 @@ cross join lateral (
   from experiences ex
   where ex.user_id = le.user_id and ex.media_item_id = le.media_item_id
 ) x
+left join lateral (
+  select a.provider from sync_events ev
+  join connected_accounts a on a.id = ev.account_id
+  where ev.library_entry_id = le.id and ev.user_id = le.user_id
+  order by ev.id
+  limit 1
+) src on true
 where le.user_id = @user_id and le.media_item_id = @media_item_id
 order by le.edition_id nulls first, le.created_at;
 
@@ -140,6 +160,15 @@ select m.public_id from u join media_items m on m.id = u.media_item_id;
 with u as (
   update library_entries
   set played_user = @played_user, updated_at = now()
+  where library_entries.public_id = @entry_id::uuid and library_entries.user_id = @user_id::bigint
+  returning media_item_id
+)
+select m.public_id from u join media_items m on m.id = u.media_item_id;
+
+-- name: LibrarySetOwnership :one
+with u as (
+  update library_entries
+  set ownership_user = @ownership_user, updated_at = now()
   where library_entries.public_id = @entry_id::uuid and library_entries.user_id = @user_id::bigint
   returning media_item_id
 )
