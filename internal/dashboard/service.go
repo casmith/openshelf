@@ -26,14 +26,15 @@ type currentCard struct {
 }
 
 type homeData struct {
-	Greeting string
-	Counters db.DashboardCountersRow
-	Current  []currentCard
-	Finished []db.DashboardRecentlyFinishedRow
-	Activity []journal.Event
-	Backlog  []db.DashboardBacklogPicksRow
-	Display  db.RatingDisplay
-	Loc      *time.Location
+	Greeting  string
+	Counters  db.DashboardCountersRow
+	Current   []currentCard
+	Finished  []db.DashboardRecentlyFinishedRow
+	Activity  []journal.Event
+	Backlog   []db.DashboardBacklogPicksRow
+	Display   db.RatingDisplay
+	Suggested int
+	Loc       *time.Location
 }
 
 func load(ctx context.Context, d *deps.Deps, viewer db.User) (homeData, error) {

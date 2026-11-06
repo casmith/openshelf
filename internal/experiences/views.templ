@@ -1,6 +1,8 @@
 package experiences
 
 import (
+	"time"
+
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/web/form"
 	"github.com/casmith/openshelf/internal/web/ui"
@@ -40,7 +42,17 @@ templ panel(p panelData) {
 						<input type="hidden" name="mode" value="finished"/>
 						<div>
 							<label for="f-finished_on-new" class="mb-1 block text-xs text-muted">Finished on (optional)</label>
-							<input id="f-finished_on-new" type="date" name="finished_on" max={ p.Today } aria-describedby="f-finished_on-new-hint" class="block rounded-md border border-line bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"/>
+							<input
+								id="f-finished_on-new"
+								type="date"
+								name="finished_on"
+								if p.Hint != nil {
+									value={ p.Hint.Day.Format(time.DateOnly) }
+								}
+								max={ p.Today }
+								aria-describedby="f-finished_on-new-hint"
+								class="block rounded-md border border-line bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+							/>
 						</div>
 						@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
 							Log as { pastVerb(p.Item.Kind) }
@@ -48,7 +60,13 @@ templ panel(p panelData) {
 						@ui.Button("secondary", templ.Attributes{"type": "submit", "name": "finished_today", "value": p.Today}) {
 							Finished today
 						}
-						<p id="f-finished_on-new-hint" class="w-full text-xs text-muted">Leave blank if you don't remember.</p>
+						<p id="f-finished_on-new-hint" class="w-full text-xs text-muted">
+							if p.Hint == nil {
+								Leave blank if you don't remember.
+							} else {
+								{ hintText(p.Hint) }
+							}
+						</p>
 					}
 				</div>
 			}

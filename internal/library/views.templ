@@ -8,6 +8,7 @@ import (
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/images"
 	"github.com/casmith/openshelf/internal/reviews"
+	"github.com/casmith/openshelf/internal/suggestions"
 	"github.com/casmith/openshelf/internal/web/form"
 	"github.com/casmith/openshelf/internal/web/ui"
 )
@@ -20,6 +21,7 @@ const (
 templ libraryPage(p ui.Page, v libraryView, src sources) {
 	@ui.Layout(p) {
 		@ui.PageHeader(p.Title, "") {
+			@suggestions.Link(v.Suggested)
 			@viewToggle(v)
 			@addLinks("secondary")
 		}

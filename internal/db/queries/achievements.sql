@@ -47,3 +47,13 @@ from defs d
 join games g on g.provider = d.provider and g.provider_game_key = d.provider_game_key
 left join achievement_unlocks u on u.achievement_id = d.id and u.account_id in (select ac2.id from accts ac2)
 group by d.media_item_id;
+
+-- name: AchievementsUnlocksForItem :many
+-- The viewer's dated unlocks for an item, earliest first.
+select a.name, coalesce(a.description, '')::text as description, min(u.unlocked_at)::timestamptz as unlocked_at
+from achievement_unlocks u
+join achievements a on a.id = u.achievement_id
+join connected_accounts ca on ca.id = u.account_id
+where ca.user_id = @user_id and a.media_item_id = sqlc.arg(item_id)::bigint and u.unlocked_at is not null
+group by a.id
+order by unlocked_at, a.id;
