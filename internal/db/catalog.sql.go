@@ -203,6 +203,25 @@ func (q *Queries) CatalogGetEdition(ctx context.Context, arg CatalogGetEditionPa
 	return i, err
 }
 
+const catalogGetTimeToBeat = `-- name: CatalogGetTimeToBeat :one
+select media_item_id, source, hastily_minutes, normally_minutes, completely_minutes, submissions, refreshed_at from game_time_to_beat where media_item_id = $1
+`
+
+func (q *Queries) CatalogGetTimeToBeat(ctx context.Context, mediaItemID int64) (GameTimeToBeat, error) {
+	row := q.db.QueryRow(ctx, catalogGetTimeToBeat, mediaItemID)
+	var i GameTimeToBeat
+	err := row.Scan(
+		&i.MediaItemID,
+		&i.Source,
+		&i.HastilyMinutes,
+		&i.NormallyMinutes,
+		&i.CompletelyMinutes,
+		&i.Submissions,
+		&i.RefreshedAt,
+	)
+	return i, err
+}
+
 const catalogInsertCredit = `-- name: CatalogInsertCredit :exec
 insert into credits (media_item_id, creator_id, role, position) values ($1, $2, $3, $4)
 on conflict do nothing
@@ -410,4 +429,23 @@ func (q *Queries) CatalogUpsertShowDetails(ctx context.Context, arg CatalogUpser
 		arg.EpisodeCount,
 	)
 	return err
+}
+
+const catalogViewerPlaytime = `-- name: CatalogViewerPlaytime :one
+select coalesce(sum(ep.minutes_total), 0)::int as minutes
+from external_playtime ep
+join connected_accounts a on a.id = ep.account_id
+where ep.media_item_id = $1 and a.user_id = $2
+`
+
+type CatalogViewerPlaytimeParams struct {
+	MediaItemID int64
+	UserID      int64
+}
+
+func (q *Queries) CatalogViewerPlaytime(ctx context.Context, arg CatalogViewerPlaytimeParams) (int32, error) {
+	row := q.db.QueryRow(ctx, catalogViewerPlaytime, arg.MediaItemID, arg.UserID)
+	var minutes int32
+	err := row.Scan(&minutes)
+	return minutes, err
 }

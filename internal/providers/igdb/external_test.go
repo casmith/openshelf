@@ -83,3 +83,65 @@ func TestGamesBySteamApp(t *testing.T) {
 		t.Error("unconfigured provider looked up appids")
 	}
 }
+
+func TestTimesToBeat(t *testing.T) {
+	var bodies []string
+	idList := regexp.MustCompile(`^fields game_id,hastily,normally,completely,count; where game_id = \(([0-9,]*)\); limit 500;$`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			_, _ = w.Write([]byte(`{"access_token":"tok","expires_in":5000000}`))
+		case "/v4/game_time_to_beats":
+			b, _ := io.ReadAll(r.Body)
+			bodies = append(bodies, string(b))
+			m := idList.FindStringSubmatch(string(b))
+			if m == nil {
+				http.Error(w, "bad query "+string(b), http.StatusBadRequest)
+				return
+			}
+			var rows []map[string]any
+			for _, id := range strings.Split(m[1], ",") {
+				switch id {
+				case "116753":
+					rows = append(rows, map[string]any{"game_id": 116753, "hastily": 3900, "normally": 8962, "completely": 14400, "count": 13})
+				case "427":
+					rows = append(rows, map[string]any{"game_id": 427, "normally": 36000, "count": 2})
+				case "5":
+					rows = append(rows, map[string]any{"game_id": 5, "count": 1})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(rows)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	p := New(config.Config{IGDBClientID: "cid", IGDBClientSecret: "secret"})
+	p.APIURL, p.TokenURL, p.HTTP.Limiter = srv.URL+"/v4", srv.URL+"/token", nil
+
+	ids := []string{"116753", "427", "427", "5", "x); fields *", "0"}
+	for i := 0; i < 600; i++ {
+		ids = append(ids, fmt.Sprint(900000+i))
+	}
+	got, err := p.TimesToBeat(context.Background(), ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %v", got)
+	}
+	a := got["116753"]
+	if *a.HastilyMinutes != 65 || *a.NormallyMinutes != 149 || *a.CompletelyMinutes != 240 || a.Submissions != 13 {
+		t.Errorf("116753 = %+v", a)
+	}
+	b := got["427"]
+	if b.HastilyMinutes != nil || *b.NormallyMinutes != 600 || b.CompletelyMinutes != nil || b.Submissions != 2 {
+		t.Errorf("427 = %+v", b)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("%d queries, want 2 batches", len(bodies))
+	}
+	if _, err := New(config.Config{}).TimesToBeat(context.Background(), []string{"427"}); err == nil {
+		t.Error("unconfigured provider looked up estimates")
+	}
+}

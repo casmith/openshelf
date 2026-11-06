@@ -201,5 +201,14 @@ templ adminPage(p ui.Page, rows []providerRow) {
 				}
 			</form>
 		}
+		@ui.Card("mt-6") {
+			<h2 class="font-semibold">Time to beat</h2>
+			<p class="mt-1 text-sm text-muted">Look up IGDB community estimates for games that have none or were checked more than 30 days ago. A smaller batch also runs daily.</p>
+			<form method="post" action="/admin/providers/time-to-beat" class="mt-4">
+				@ui.Button("secondary", templ.Attributes{"type": "submit"}) {
+					Fetch time-to-beat estimates
+				}
+			</form>
+		}
 	}
 }

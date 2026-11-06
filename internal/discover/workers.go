@@ -36,12 +36,16 @@ func (wk *RefreshStaleWorker) Timeout(*river.Job[RefreshStaleArgs]) time.Duratio
 func Workers(w *river.Workers, d *deps.Deps) {
 	river.AddWorker(w, &RefreshStaleWorker{D: d})
 	river.AddWorker(w, &BackfillCoversWorker{D: d})
+	river.AddWorker(w, &TimeToBeatWorker{D: d})
 }
 
 func PeriodicJobs(d *deps.Deps) []*river.PeriodicJob {
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 			return RefreshStaleArgs{}, nil
+		}, nil),
+		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {
+			return TimeToBeatArgs{Limit: timeToBeatBatch}, nil
 		}, nil),
 	}
 }

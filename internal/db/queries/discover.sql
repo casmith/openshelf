@@ -128,3 +128,23 @@ limit @lim::int;
 -- name: DiscoverSetCoverIfMissing :exec
 update media_items set cover_image_id = @image_id, updated_at = now()
 where id = @id and cover_image_id is null;
+
+-- name: DiscoverUpsertTimeToBeat :exec
+insert into game_time_to_beat (media_item_id, source, hastily_minutes, normally_minutes, completely_minutes, submissions, refreshed_at)
+values (@media_item_id, @source, @hastily_minutes, @normally_minutes, @completely_minutes, @submissions, now())
+on conflict (media_item_id) do update
+set source = excluded.source, hastily_minutes = excluded.hastily_minutes, normally_minutes = excluded.normally_minutes,
+    completely_minutes = excluded.completely_minutes, submissions = excluded.submissions, refreshed_at = now();
+
+-- name: DiscoverMarkTimeToBeatChecked :exec
+insert into game_time_to_beat (media_item_id)
+select unnest(@ids::bigint[])
+on conflict (media_item_id) do update set refreshed_at = now();
+
+-- name: DiscoverItemsNeedingTimeToBeat :many
+select distinct on (m.id) m.id, x.value as igdb_id from media_items m
+join external_ids x on x.media_item_id = m.id and x.provider = 'igdb_game'
+left join game_time_to_beat t on t.media_item_id = m.id
+where m.kind = 'game' and (t.media_item_id is null or t.refreshed_at < @cutoff::timestamptz)
+order by m.id, x.id
+limit @lim::int;

@@ -365,7 +365,7 @@ func TestRefreshStaleJob(t *testing.T) {
 	}
 	testutil.CreateItem(t, s.Pool, db.MediaKindBook, "Manual Book")
 
-	if jobs := discover.PeriodicJobs(s.Deps); len(jobs) != 1 {
+	if jobs := discover.PeriodicJobs(s.Deps); len(jobs) != 2 {
 		t.Fatalf("periodic jobs = %d", len(jobs))
 	}
 	w := &discover.RefreshStaleWorker{D: s.Deps}

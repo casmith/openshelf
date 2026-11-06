@@ -66,3 +66,12 @@ returning *;
 
 -- name: CatalogDeleteEdition :exec
 delete from editions where id = $1;
+
+-- name: CatalogGetTimeToBeat :one
+select * from game_time_to_beat where media_item_id = $1;
+
+-- name: CatalogViewerPlaytime :one
+select coalesce(sum(ep.minutes_total), 0)::int as minutes
+from external_playtime ep
+join connected_accounts a on a.id = ep.account_id
+where ep.media_item_id = @media_item_id and a.user_id = @user_id;
