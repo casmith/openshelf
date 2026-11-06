@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -26,6 +27,7 @@ type fakeIGDB struct {
 	revoked   map[string]bool
 	expiresIn int
 	bodies    []string
+	ttbFail   bool
 }
 
 func (f *fakeIGDB) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +71,18 @@ func (f *fakeIGDB) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.t.Fatal(err)
 		}
 		_, _ = w.Write(data)
+	case "/v4/game_time_to_beats":
+		b, _ := io.ReadAll(r.Body)
+		f.bodies = append(f.bodies, string(b))
+		if f.ttbFail {
+			http.Error(w, "boom", http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(string(b), "where game_id = (1072);") {
+			_, _ = w.Write([]byte(`[{"id":9,"game_id":1072,"hastily":3900,"normally":8962,"count":13}]`))
+			return
+		}
+		_, _ = w.Write([]byte("[]"))
 	default:
 		http.NotFound(w, r)
 	}
@@ -320,5 +334,38 @@ func TestNormalizeGenre(t *testing.T) {
 		if got := normalizeGenre(in); got != want {
 			t.Errorf("normalizeGenre(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestFetchTimeToBeat(t *testing.T) {
+	p, f := newTest(t)
+	item, err := p.Fetch(t.Context(), db.MediaKindGame, "1072")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ttb := item.Game.TimeToBeat
+	if ttb == nil || *ttb.HastilyMinutes != 65 || *ttb.NormallyMinutes != 149 || ttb.CompletelyMinutes != nil || ttb.Submissions != 13 {
+		t.Fatalf("time to beat = %+v", ttb)
+	}
+	if got := f.bodies[len(f.bodies)-1]; got != "fields game_id,hastily,normally,completely,count; where game_id = (1072); limit 500;" {
+		t.Errorf("body = %q", got)
+	}
+
+	item, err = p.Fetch(t.Context(), db.MediaKindGame, "231")
+	if err != nil || item.Game.TimeToBeat != nil {
+		t.Fatalf("game without estimate: %v, %+v", err, item.Game.TimeToBeat)
+	}
+}
+
+func TestFetchToleratesTimeToBeatError(t *testing.T) {
+	p, f := newTest(t)
+	p.Log = slog.New(slog.DiscardHandler)
+	f.ttbFail = true
+	item, err := p.Fetch(t.Context(), db.MediaKindGame, "1072")
+	if err != nil {
+		t.Fatalf("Fetch failed on time-to-beat error: %v", err)
+	}
+	if item.Title != "Rez" || item.Game.TimeToBeat != nil {
+		t.Fatalf("item = %+v, ttb = %+v", item, item.Game.TimeToBeat)
 	}
 }

@@ -122,7 +122,7 @@ func importTx(ctx context.Context, d *deps.Deps, q *db.Queries, tx pgx.Tx, provi
 		return db.MediaItem{}, err
 	}
 
-	if err := upsertDetails(ctx, q, item.ID, it, isLocked); err != nil {
+	if err := upsertDetails(ctx, q, item.ID, providerName, it, isLocked); err != nil {
 		return db.MediaItem{}, err
 	}
 	if !isLocked(FieldCredits) {
@@ -168,7 +168,7 @@ func findExisting(ctx context.Context, q *db.Queries, ids []providers.ExternalID
 	return db.MediaItem{}, false, nil
 }
 
-func upsertDetails(ctx context.Context, q *db.Queries, itemID int64, it *providers.Item, isLocked func(string) bool) error {
+func upsertDetails(ctx context.Context, q *db.Queries, itemID int64, source string, it *providers.Item, isLocked func(string) bool) error {
 	switch it.Kind {
 	case db.MediaKindGame:
 		p := db.DiscoverUpsertGameDetailsParams{MediaItemID: itemID}
@@ -178,7 +178,13 @@ func upsertDetails(ctx context.Context, q *db.Queries, itemID int64, it *provide
 		if cur, err := q.GetGameDetails(ctx, itemID); err == nil && isLocked("franchise") {
 			p.Franchise = cur.Franchise
 		}
-		return q.DiscoverUpsertGameDetails(ctx, p)
+		if err := q.DiscoverUpsertGameDetails(ctx, p); err != nil {
+			return err
+		}
+		if it.Game != nil && it.Game.TimeToBeat != nil {
+			return upsertTimeToBeat(ctx, q, itemID, source, *it.Game.TimeToBeat)
+		}
+		return nil
 	case db.MediaKindBook:
 		p := db.DiscoverUpsertBookDetailsParams{MediaItemID: itemID}
 		if it.Book != nil {

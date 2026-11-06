@@ -20,8 +20,17 @@ func Header(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaItem
 	if err != nil {
 		return nil, err
 	}
-	return header(headerData{Item: item, Details: details, Editions: editions, CanEdit: CanEdit(viewer, item),
-		CanRefresh: viewer.Role == db.UserRoleAdmin && item.MetadataProvider != nil}), nil
+	h := headerData{Item: item, Details: details, Editions: editions, CanEdit: CanEdit(viewer, item),
+		CanRefresh: viewer.Role == db.UserRoleAdmin && item.MetadataProvider != nil}
+	if item.Kind == db.MediaKindGame {
+		if h.TimeToBeat, err = noRows(d.Q.CatalogGetTimeToBeat(ctx, item.ID)); err != nil {
+			return nil, err
+		}
+		if h.PlayedMinutes, err = d.Q.CatalogViewerPlaytime(ctx, db.CatalogViewerPlaytimeParams{MediaItemID: item.ID, UserID: viewer.ID}); err != nil {
+			return nil, err
+		}
+	}
+	return header(h), nil
 }
 
 func KindLabel(k db.MediaKind) string {

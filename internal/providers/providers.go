@@ -61,7 +61,18 @@ type Edition struct {
 	ExternalIDs     []ExternalID
 }
 
-type GameDetails struct{ Franchise string }
+type GameDetails struct {
+	Franchise  string
+	TimeToBeat *TimeToBeat // nil when the provider has no estimate
+}
+
+// TimeToBeat holds community playtime estimates in minutes; any of them may be unknown.
+type TimeToBeat struct {
+	HastilyMinutes    *int32
+	NormallyMinutes   *int32
+	CompletelyMinutes *int32
+	Submissions       int32
+}
 
 type BookDetails struct {
 	SeriesName     string

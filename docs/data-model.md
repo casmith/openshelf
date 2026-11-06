@@ -465,6 +465,22 @@ create index achievement_unlocks_achievement_idx on achievement_unlocks (achieve
 
 Deleting a connected account cascades its runs, events, exclusions, playtime, and unlocks. Library entries are kept, so an unlink flow that removes imported entries must find them (via `entry_created` events) first.
 
+## Time to beat (migration `02400_time_to_beat.sql`)
+
+```sql
+create table game_time_to_beat (
+  media_item_id      bigint primary key references media_items on delete cascade,
+  source             text not null default 'igdb',
+  hastily_minutes    int,
+  normally_minutes   int,
+  completely_minutes int,
+  submissions        int,
+  refreshed_at       timestamptz not null default now()
+);
+```
+
+Shared community estimates for game items, from IGDB `game_time_to_beats` (seconds, rounded to minutes). Written on import/refresh when the provider returns an estimate (never deleted when it doesn't) and by the `discover_time_to_beat` backfill job. A row with all three minute columns null means IGDB had no estimate when last checked; the backfill retries rows whose `refreshed_at` is older than 30 days.
+
 ## Later releases
 
 Deferred to v0.3: `achievement_awards` (RetroAchievements mastery/completion awards, S32) and `match_candidates` (the shared match review queue, S33). Until then, unmatched Steam games become manual items with a `needs_review` sync event. `source_records` (raw provider payloads) is dropped: source tables plus `sync_events` cover what the UI needs.

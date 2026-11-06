@@ -349,6 +349,45 @@ func (q *Queries) DiscoverItemsMissingCovers(ctx context.Context, lim int32) ([]
 	return items, nil
 }
 
+const discoverItemsNeedingTimeToBeat = `-- name: DiscoverItemsNeedingTimeToBeat :many
+select distinct on (m.id) m.id, x.value as igdb_id from media_items m
+join external_ids x on x.media_item_id = m.id and x.provider = 'igdb_game'
+left join game_time_to_beat t on t.media_item_id = m.id
+where m.kind = 'game' and (t.media_item_id is null or t.refreshed_at < $1::timestamptz)
+order by m.id, x.id
+limit $2::int
+`
+
+type DiscoverItemsNeedingTimeToBeatParams struct {
+	Cutoff time.Time
+	Lim    int32
+}
+
+type DiscoverItemsNeedingTimeToBeatRow struct {
+	ID     int64
+	IgdbID string
+}
+
+func (q *Queries) DiscoverItemsNeedingTimeToBeat(ctx context.Context, arg DiscoverItemsNeedingTimeToBeatParams) ([]DiscoverItemsNeedingTimeToBeatRow, error) {
+	rows, err := q.db.Query(ctx, discoverItemsNeedingTimeToBeat, arg.Cutoff, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DiscoverItemsNeedingTimeToBeatRow{}
+	for rows.Next() {
+		var i DiscoverItemsNeedingTimeToBeatRow
+		if err := rows.Scan(&i.ID, &i.IgdbID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const discoverListStale = `-- name: DiscoverListStale :many
 select s.media_item_id from discover_sources s
 join media_items m on m.id = s.media_item_id
@@ -393,6 +432,17 @@ type DiscoverLockExternalIDParams struct {
 
 func (q *Queries) DiscoverLockExternalID(ctx context.Context, arg DiscoverLockExternalIDParams) error {
 	_, err := q.db.Exec(ctx, discoverLockExternalID, arg.Provider, arg.Value)
+	return err
+}
+
+const discoverMarkTimeToBeatChecked = `-- name: DiscoverMarkTimeToBeatChecked :exec
+insert into game_time_to_beat (media_item_id)
+select unnest($1::bigint[])
+on conflict (media_item_id) do update set refreshed_at = now()
+`
+
+func (q *Queries) DiscoverMarkTimeToBeatChecked(ctx context.Context, ids []int64) error {
+	_, err := q.db.Exec(ctx, discoverMarkTimeToBeatChecked, ids)
 	return err
 }
 
@@ -647,5 +697,34 @@ type DiscoverUpsertSourceParams struct {
 
 func (q *Queries) DiscoverUpsertSource(ctx context.Context, arg DiscoverUpsertSourceParams) error {
 	_, err := q.db.Exec(ctx, discoverUpsertSource, arg.MediaItemID, arg.Provider, arg.ExternalID)
+	return err
+}
+
+const discoverUpsertTimeToBeat = `-- name: DiscoverUpsertTimeToBeat :exec
+insert into game_time_to_beat (media_item_id, source, hastily_minutes, normally_minutes, completely_minutes, submissions, refreshed_at)
+values ($1, $2, $3, $4, $5, $6, now())
+on conflict (media_item_id) do update
+set source = excluded.source, hastily_minutes = excluded.hastily_minutes, normally_minutes = excluded.normally_minutes,
+    completely_minutes = excluded.completely_minutes, submissions = excluded.submissions, refreshed_at = now()
+`
+
+type DiscoverUpsertTimeToBeatParams struct {
+	MediaItemID       int64
+	Source            string
+	HastilyMinutes    *int32
+	NormallyMinutes   *int32
+	CompletelyMinutes *int32
+	Submissions       *int32
+}
+
+func (q *Queries) DiscoverUpsertTimeToBeat(ctx context.Context, arg DiscoverUpsertTimeToBeatParams) error {
+	_, err := q.db.Exec(ctx, discoverUpsertTimeToBeat,
+		arg.MediaItemID,
+		arg.Source,
+		arg.HastilyMinutes,
+		arg.NormallyMinutes,
+		arg.CompletelyMinutes,
+		arg.Submissions,
+	)
 	return err
 }

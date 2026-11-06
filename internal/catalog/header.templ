@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,41 @@ type headerData struct {
 	Editions []db.ListEditionsForItemRow
 	CanEdit  bool
 	CanRefresh bool
+	TimeToBeat    db.GameTimeToBeat
+	PlayedMinutes int32
+}
+
+// hours rounds to the nearest half hour below 10 h and to whole hours above.
+func hours(minutes int32) string {
+	h := float64(minutes) / 60
+	if h < 10 {
+		h = max(math.Round(h*2)/2, 0.5)
+		return strconv.FormatFloat(h, 'f', -1, 64) + " h"
+	}
+	return strconv.Itoa(int(math.Round(h))) + " h"
+}
+
+func timeToBeatParts(t db.GameTimeToBeat) []string {
+	var out []string
+	for _, p := range []struct {
+		m     *int32
+		label string
+	}{{t.HastilyMinutes, "rushed"}, {t.NormallyMinutes, "main"}, {t.CompletelyMinutes, "completionist"}} {
+		if p.m != nil && *p.m > 0 {
+			out = append(out, hours(*p.m)+" "+p.label)
+		}
+	}
+	return out
+}
+
+func submissionsLabel(n *int32) string {
+	if n == nil || *n <= 0 {
+		return ""
+	}
+	if *n == 1 {
+		return "1 submission"
+	}
+	return strconv.Itoa(int(*n)) + " submissions"
 }
 
 func isPrimaryRole(r db.CreditRole) bool {
@@ -145,6 +181,7 @@ templ header(h headerData) {
 			if h.Item.Synopsis != nil {
 				<p class="mt-4 max-w-prose whitespace-pre-line text-sm leading-relaxed">{ *h.Item.Synopsis }</p>
 			}
+			@timeToBeat(h)
 			if facts := itemFacts(h.Details); len(facts) > 0 {
 				<dl class="mt-4 grid max-w-prose grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
 					for _, f := range facts {
@@ -178,4 +215,30 @@ templ header(h headerData) {
 			}
 		</div>
 	</div>
+}
+
+templ timeToBeat(h headerData) {
+	if parts := timeToBeatParts(h.TimeToBeat); len(parts) > 0 || h.PlayedMinutes > 0 {
+		<div class="mt-4 text-sm" data-time-to-beat>
+			if len(parts) > 0 {
+				<p>
+					<span class="text-muted">Time to beat ·</span> { strings.Join(parts, " · ") }
+				</p>
+			}
+			<p class="mt-0.5 text-xs text-muted">
+				if h.PlayedMinutes > 0 {
+					<span class="text-fg">You've played { hours(h.PlayedMinutes) }</span>
+					if len(parts) > 0 {
+						·
+					}
+				}
+				if len(parts) > 0 {
+					<a href="https://www.igdb.com" class="hover:text-accent" title="Estimates from IGDB.com">IGDB</a>
+					if s := submissionsLabel(h.TimeToBeat.Submissions); s != "" {
+						· { s }
+					}
+				}
+			</p>
+		</div>
+	}
 }

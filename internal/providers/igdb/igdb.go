@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -38,6 +39,7 @@ type Provider struct {
 	APIURL   string
 	TokenURL string
 	HTTP     *providers.HTTP
+	Log      *slog.Logger
 
 	now     func() time.Time
 	mu      sync.Mutex
@@ -51,6 +53,7 @@ func New(cfg config.Config) *Provider {
 		APIURL:   DefaultAPIURL,
 		TokenURL: DefaultTokenURL,
 		HTTP:     providers.NewHTTP(4, 4),
+		Log:      slog.Default(),
 		now:      time.Now,
 	}
 }
@@ -145,7 +148,14 @@ func (p *Provider) Fetch(ctx context.Context, kind db.MediaKind, externalID stri
 	if len(games) == 0 {
 		return nil, providers.ErrNotFound
 	}
-	return toItem(games[0]), nil
+	item := toItem(games[0])
+	ttb, err := p.TimesToBeat(ctx, []string{externalID})
+	if err != nil {
+		p.Log.Warn("igdb: time to beat lookup failed", "game", id, "err", err)
+	} else if t, ok := ttb[externalID]; ok {
+		item.Game.TimeToBeat = &t
+	}
+	return item, nil
 }
 
 func toItem(g game) *providers.Item {

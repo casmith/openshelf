@@ -1124,6 +1124,16 @@ type GameDetail struct {
 	Franchise   *string
 }
 
+type GameTimeToBeat struct {
+	MediaItemID       int64
+	Source            string
+	HastilyMinutes    *int32
+	NormallyMinutes   *int32
+	CompletelyMinutes *int32
+	Submissions       *int32
+	RefreshedAt       time.Time
+}
+
 type Image struct {
 	ID          int64
 	SourceUrl   *string

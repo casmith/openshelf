@@ -29,6 +29,7 @@ func Register(mux *http.ServeMux, d *deps.Deps) {
 	mux.Handle("POST /items/{id}/refresh", wrap(auth.RequireAdmin, refreshItem))
 	mux.Handle("GET /admin/providers", wrap(auth.RequireAdmin, adminProviders))
 	mux.Handle("POST /admin/providers/covers", wrap(auth.RequireAdmin, backfillCovers))
+	mux.Handle("POST /admin/providers/time-to-beat", wrap(auth.RequireAdmin, backfillTimeToBeat))
 }
 
 type pageData struct {
@@ -175,5 +176,14 @@ func backfillCovers(w http.ResponseWriter, r *http.Request, d *deps.Deps) {
 		return
 	}
 	web.Flash(r.Context(), d, "Looking up missing covers in the background. Refresh in a minute.")
+	web.Redirect(w, r, "/admin/providers")
+}
+
+func backfillTimeToBeat(w http.ResponseWriter, r *http.Request, d *deps.Deps) {
+	if _, err := d.River.Insert(r.Context(), TimeToBeatArgs{}, nil); err != nil {
+		web.Error(w, r, d, err)
+		return
+	}
+	web.Flash(r.Context(), d, "Fetching time-to-beat estimates in the background. Refresh in a minute.")
 	web.Redirect(w, r, "/admin/providers")
 }
