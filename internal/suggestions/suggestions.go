@@ -1,5 +1,5 @@
 // Package suggestions proposes games the viewer has probably finished, based on
-// synced achievements. It only suggests: every finish is an explicit user action (ADR 0002).
+// synced achievements and playtime. It only suggests: every finish is an explicit user action (ADR 0002).
 package suggestions
 
 import (
@@ -26,7 +26,13 @@ type Suggestion struct {
 	Unlocked int
 	Total    int
 	Minutes  int
+	// Normally is the main-story estimate behind a Maybe suggestion.
+	Normally int
 }
+
+// Maybe is a playtime-only suggestion: no achievement signal, but the viewer has
+// played at least as long as most players take to finish.
+const Maybe = achievements.Level(-1)
 
 func load(ctx context.Context, q *db.Queries, viewer db.User, itemID *int64) ([]Suggestion, error) {
 	rows, err := q.SuggestionsCandidates(ctx, db.SuggestionsCandidatesParams{UserID: viewer.ID, ItemID: itemID})
@@ -43,29 +49,43 @@ func load(ctx context.Context, q *db.Queries, viewer db.User, itemID *int64) ([]
 			return nil, err
 		}
 		v := achievements.Classify(g)
-		if v.Level == achievements.None {
+		s := Suggestion{
+			ItemID: r.ID, PublicID: r.PublicID, Title: r.Title, Kind: r.Kind, CoverImageID: r.CoverImageID,
+			Unlocked: g.Unlocked, Total: g.Total, Minutes: int(r.Minutes),
+		}
+		switch {
+		case v.Level != achievements.None:
+			s.Verdict = v
+		case r.MaybeNormallyMinutes != nil:
+			s.Verdict = achievements.Verdict{Level: Maybe, FinishAt: r.LastPlayedAt}
+			s.Normally = int(*r.MaybeNormallyMinutes)
+		default:
 			continue
 		}
-		out = append(out, Suggestion{
-			ItemID: r.ID, PublicID: r.PublicID, Title: r.Title, Kind: r.Kind, CoverImageID: r.CoverImageID,
-			Verdict:  v,
-			Unlocked: g.Unlocked, Total: g.Total, Minutes: int(r.Minutes),
-		})
+		out = append(out, s)
 	}
 	return out, nil
 }
 
-// List returns the viewer's suggestions split by strength.
-func List(ctx context.Context, q *db.Queries, viewer db.User) (strong, medium []Suggestion, err error) {
+// Groups are the viewer's suggestions split by strength.
+type Groups struct {
+	Strong, Medium, Maybe []Suggestion
+}
+
+func List(ctx context.Context, q *db.Queries, viewer db.User) (Groups, error) {
 	all, err := load(ctx, q, viewer, nil)
+	var g Groups
 	for _, s := range all {
-		if s.Level == achievements.Strong {
-			strong = append(strong, s)
-		} else {
-			medium = append(medium, s)
+		switch s.Level {
+		case achievements.Strong:
+			g.Strong = append(g.Strong, s)
+		case achievements.Medium:
+			g.Medium = append(g.Medium, s)
+		default:
+			g.Maybe = append(g.Maybe, s)
 		}
 	}
-	return strong, medium, err
+	return g, err
 }
 
 // Count is the number of current suggestions, in one query.

@@ -22,9 +22,9 @@ import (
 const pagePath = "/suggestions/finished"
 
 type pageView struct {
-	HasAccounts    bool
-	Strong, Medium []Suggestion
-	Loc            *time.Location
+	HasAccounts bool
+	Groups
+	Loc *time.Location
 }
 
 func Register(mux *http.ServeMux, d *deps.Deps) {
@@ -50,7 +50,7 @@ func index(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User)
 	}
 	v := pageView{HasAccounts: has, Loc: location(viewer)}
 	if has {
-		if v.Strong, v.Medium, err = List(r.Context(), d.Q, viewer); err != nil {
+		if v.Groups, err = List(r.Context(), d.Q, viewer); err != nil {
 			web.Error(w, r, d, err)
 			return
 		}
@@ -59,27 +59,27 @@ func index(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User)
 }
 
 func confirmAll(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User) {
-	strong, _, err := List(r.Context(), d.Q, viewer)
+	g, err := List(r.Context(), d.Q, viewer)
 	if err != nil {
 		web.Error(w, r, d, err)
 		return
 	}
-	web.Render(w, r, http.StatusOK, confirmPage(web.PageFor(r, d, "Mark all as finished", "library"), strong, location(viewer)))
+	web.Render(w, r, http.StatusOK, confirmPage(web.PageFor(r, d, "Mark all as finished", "library"), g.Strong, location(viewer)))
 }
 
 func markAll(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User) {
 	n := 0
 	err := d.WithTx(r.Context(), func(q *db.Queries, _ pgx.Tx) error {
-		strong, _, err := List(r.Context(), q, viewer)
+		g, err := List(r.Context(), q, viewer)
 		if err != nil {
 			return err
 		}
-		for _, s := range strong {
+		for _, s := range g.Strong {
 			if err := MarkFinished(r.Context(), q, d.Now(), viewer, s, false); err != nil {
 				return err
 			}
 		}
-		n = len(strong)
+		n = len(g.Strong)
 		return nil
 	})
 	if err != nil {
@@ -151,14 +151,14 @@ func ItemPanel(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaI
 	if item.Kind != db.MediaKindGame {
 		return templ.NopComponent, nil
 	}
-	_, err := For(ctx, d.Q, viewer, item.ID)
+	s, err := For(ctx, d.Q, viewer, item.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return templ.NopComponent, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return itemPanel(item), nil
+	return itemPanel(item, s), nil
 }
 
 func plural(n int, word string) string {

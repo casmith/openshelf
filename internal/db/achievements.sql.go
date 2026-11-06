@@ -142,6 +142,28 @@ func (q *Queries) AchievementsForItem(ctx context.Context, arg AchievementsForIt
 	return items, nil
 }
 
+const achievementsLastPlayed = `-- name: AchievementsLastPlayed :one
+select p.last_played_at::timestamptz as last_played_at
+from external_playtime p
+join connected_accounts ca on ca.id = p.account_id
+where ca.user_id = $1 and p.media_item_id = $2::bigint and p.last_played_at is not null
+order by p.last_played_at desc
+limit 1
+`
+
+type AchievementsLastPlayedParams struct {
+	UserID int64
+	ItemID int64
+}
+
+// The viewer's most recent play of an item across their accounts.
+func (q *Queries) AchievementsLastPlayed(ctx context.Context, arg AchievementsLastPlayedParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, achievementsLastPlayed, arg.UserID, arg.ItemID)
+	var last_played_at time.Time
+	err := row.Scan(&last_played_at)
+	return last_played_at, err
+}
+
 const achievementsUnlocksForItem = `-- name: AchievementsUnlocksForItem :many
 select a.name, coalesce(a.description, '')::text as description, min(u.unlocked_at)::timestamptz as unlocked_at
 from achievement_unlocks u

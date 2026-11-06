@@ -1,7 +1,6 @@
 package catalog
 
 import (
-	"math"
 	"strconv"
 	"strings"
 
@@ -20,16 +19,6 @@ type headerData struct {
 	PlayedMinutes int32
 }
 
-// hours rounds to the nearest half hour below 10 h and to whole hours above.
-func hours(minutes int32) string {
-	h := float64(minutes) / 60
-	if h < 10 {
-		h = max(math.Round(h*2)/2, 0.5)
-		return strconv.FormatFloat(h, 'f', -1, 64) + " h"
-	}
-	return strconv.Itoa(int(math.Round(h))) + " h"
-}
-
 func timeToBeatParts(t db.GameTimeToBeat) []string {
 	var out []string
 	for _, p := range []struct {
@@ -37,7 +26,7 @@ func timeToBeatParts(t db.GameTimeToBeat) []string {
 		label string
 	}{{t.HastilyMinutes, "rushed"}, {t.NormallyMinutes, "main"}, {t.CompletelyMinutes, "completionist"}} {
 		if p.m != nil && *p.m > 0 {
-			out = append(out, hours(*p.m)+" "+p.label)
+			out = append(out, ui.Hours(*p.m)+" "+p.label)
 		}
 	}
 	return out
@@ -227,7 +216,7 @@ templ timeToBeat(h headerData) {
 			}
 			<p class="mt-0.5 text-xs text-muted">
 				if h.PlayedMinutes > 0 {
-					<span class="text-fg">You've played { hours(h.PlayedMinutes) }</span>
+					<span class="text-fg">You've played { ui.Hours(h.PlayedMinutes) }</span>
 					if len(parts) > 0 {
 						·
 					}
