@@ -74,6 +74,19 @@ func providerName(d *deps.Deps, provider string) string {
 	return provider
 }
 
+// itemNoun is what the provider syncs: "game", "book", or "item".
+func itemNoun(d *deps.Deps, provider string) string {
+	if a, ok := d.SyncAdapters.Get(provider); ok {
+		switch c := a.Capabilities(); {
+		case c.OwnedGames:
+			return "game"
+		case c.Audiobooks:
+			return "book"
+		}
+	}
+	return "item"
+}
+
 func accountName(a db.ConnectedAccount) string {
 	if a.DisplayName != "" {
 		return a.DisplayName
@@ -119,6 +132,7 @@ type runView struct {
 type historyView struct {
 	Account   db.ConnectedAccount
 	Provider  string
+	Noun      string
 	Loc       *time.Location
 	Runs      []runView
 	Older     string
@@ -132,7 +146,7 @@ type historyView struct {
 func history(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User, acct db.ConnectedAccount) {
 	ctx := r.Context()
 	q := r.URL.Query()
-	v := historyView{Account: acct, Provider: providerName(d, acct.Provider), Loc: location(viewer.Timezone), EventsCap: maxRunEvents}
+	v := historyView{Account: acct, Provider: providerName(d, acct.Provider), Noun: itemNoun(d, acct.Provider), Loc: location(viewer.Timezone), EventsCap: maxRunEvents}
 
 	if q.Get("filter") == filterReview {
 		v.Filter = filterReview

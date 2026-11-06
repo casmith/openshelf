@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/suggestions"
 	"github.com/casmith/openshelf/internal/web/form"
 	"github.com/casmith/openshelf/internal/web/ui"
 )
@@ -161,6 +162,22 @@ var (
 	}
 )
 
+func statusOptionsFor(kind *db.MediaKind) []ui.Option {
+	if kind == nil || *kind != db.MediaKindBook {
+		return statusOptions
+	}
+	opts := slices.Clone(statusOptions)
+	for i, o := range opts {
+		switch o.Value {
+		case "played":
+			opts[i].Label = "Started"
+		case "not_played":
+			opts[i].Label = "Not started"
+		}
+	}
+	return opts
+}
+
 func sortOptionsFor(kind *db.MediaKind) []ui.Option {
 	if !gamesOnly(kind) {
 		return sortOptions
@@ -266,8 +283,8 @@ type libraryView struct {
 	Page    Page
 	Facets  Facets
 	Display db.RatingDisplay
-	// Suggested is the number of finish suggestions, linked from the header.
-	Suggested int
+	// Suggested counts finish suggestions, linked from the header.
+	Suggested suggestions.Tally
 }
 
 func (v libraryView) kindTabs() []ui.Tab {

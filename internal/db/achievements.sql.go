@@ -164,6 +164,52 @@ func (q *Queries) AchievementsLastPlayed(ctx context.Context, arg AchievementsLa
 	return last_played_at, err
 }
 
+const achievementsProgressForItem = `-- name: AchievementsProgressForItem :many
+select p.finished, p.finished_at, p.fraction, p.last_activity_at
+from external_progress p
+join connected_accounts ca on ca.id = p.account_id
+where ca.user_id = $1 and p.media_item_id = $2::bigint
+order by p.finished desc, p.finished_at nulls last, p.fraction desc, p.last_activity_at desc nulls last
+`
+
+type AchievementsProgressForItemParams struct {
+	UserID int64
+	ItemID int64
+}
+
+type AchievementsProgressForItemRow struct {
+	Finished       bool
+	FinishedAt     *time.Time
+	Fraction       float64
+	LastActivityAt *time.Time
+}
+
+// The viewer's Audiobookshelf progress rows for an item, finished first.
+func (q *Queries) AchievementsProgressForItem(ctx context.Context, arg AchievementsProgressForItemParams) ([]AchievementsProgressForItemRow, error) {
+	rows, err := q.db.Query(ctx, achievementsProgressForItem, arg.UserID, arg.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AchievementsProgressForItemRow{}
+	for rows.Next() {
+		var i AchievementsProgressForItemRow
+		if err := rows.Scan(
+			&i.Finished,
+			&i.FinishedAt,
+			&i.Fraction,
+			&i.LastActivityAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const achievementsUnlocksForItem = `-- name: AchievementsUnlocksForItem :many
 select a.name, coalesce(a.description, '')::text as description, min(u.unlocked_at)::timestamptz as unlocked_at
 from achievement_unlocks u

@@ -42,9 +42,24 @@ maybe as (
     and pl.minutes >= t.normally_minutes
     and pl.minutes < 3 * coalesce(t.completely_minutes, t.normally_minutes)
 ),
-games as (
+listened as (
+  select pr.media_item_id,
+         bool_or(pr.finished)::boolean as finished,
+         min(pr.finished_at) filter (where pr.finished)::timestamptz as finished_at,
+         max(pr.fraction)::float8 as fraction,
+         max(pr.last_activity_at)::timestamptz as last_activity_at
+  from external_progress pr
+  join media_items lm on lm.id = pr.media_item_id and lm.kind = 'book'
+  where pr.account_id in (select id from accts)
+    and ($2::bigint is null or pr.media_item_id = $2::bigint)
+  group by pr.media_item_id
+  having bool_or(pr.finished) or max(pr.fraction) >= 0.95
+),
+items as (
   select c.media_item_id
-  from (select media_item_id from unlocked union select media_item_id from maybe) c
+  from (select media_item_id from unlocked
+        union select media_item_id from maybe
+        union select media_item_id from listened) c
   where not exists (select 1 from experiences e
                     where e.user_id = $1 and e.media_item_id = c.media_item_id and e.state = 'finished')
     and not exists (select 1 from finish_suggestion_dismissals x
@@ -59,6 +74,10 @@ select m.id, m.public_id, m.title, m.kind, m.cover_image_id,
        coalesce(pl.minutes, 0)::int as minutes,
        pl.last_played_at,
        mb.normally_minutes as maybe_normally_minutes,
+       coalesce(li.finished, false)::boolean as listened_finished,
+       li.finished_at as listened_finished_at,
+       li.fraction as listened_fraction,
+       li.last_activity_at as listened_at,
        jsonb_build_object('name', coalesce(last.name, ''), 'description', coalesce(last.description, ''), 'at', last.unlocked_at) as latest,
        coalesce((select jsonb_agg(jsonb_build_object('name', un.name, 'description', coalesce(un.description, ''), 'at', un.unlocked_at)
                                   order by un.unlocked_at nulls last, un.id)
@@ -66,10 +85,11 @@ select m.id, m.public_id, m.title, m.kind, m.cover_image_id,
                  where un.media_item_id = m.id
                    and (un.name || ' ' || coalesce(un.description, '')) ~* '(end|epilogue|credit|final|beat|finish|complet)'),
                 '[]')::jsonb as candidates
-from games g
+from items g
 join media_items m on m.id = g.media_item_id
 left join played pl on pl.media_item_id = m.id
 left join maybe mb on mb.media_item_id = m.id
+left join listened li on li.media_item_id = m.id
 left join lateral (
   select un.name, un.description, un.unlocked_at from unlocked un
   where un.media_item_id = m.id
@@ -95,16 +115,21 @@ type SuggestionsCandidatesRow struct {
 	Minutes              int32
 	LastPlayedAt         *time.Time
 	MaybeNormallyMinutes *int32
+	ListenedFinished     bool
+	ListenedFinishedAt   *time.Time
+	ListenedFraction     *float64
+	ListenedAt           *time.Time
 	Latest               []byte
 	Candidates           []byte
 }
 
 // Queries used by internal/suggestions. Everything is scoped to the viewer's own
 // connected accounts; this package never writes sync tables.
-// One row per unfinished, undismissed game with unlocks or with playtime past the
-// main-story estimate. Only achievements whose text could signal an ending are
-// returned (as JSON); the Go classifier decides. maybe marks the playtime signal:
-// at least normally_minutes and under 3x completely (or normally) to skip endless games.
+// One row per unfinished, undismissed item with unlocks, with playtime past the
+// main-story estimate, or (books) with Audiobookshelf finished/at least 95% listened.
+// Only achievements whose text could signal an ending are returned (as JSON); the Go
+// classifier decides. maybe marks the playtime signal: at least normally_minutes and
+// under 3x completely (or normally) to skip endless games.
 func (q *Queries) SuggestionsCandidates(ctx context.Context, arg SuggestionsCandidatesParams) ([]SuggestionsCandidatesRow, error) {
 	rows, err := q.db.Query(ctx, suggestionsCandidates, arg.UserID, arg.ItemID)
 	if err != nil {
@@ -125,6 +150,10 @@ func (q *Queries) SuggestionsCandidates(ctx context.Context, arg SuggestionsCand
 			&i.Minutes,
 			&i.LastPlayedAt,
 			&i.MaybeNormallyMinutes,
+			&i.ListenedFinished,
+			&i.ListenedFinishedAt,
+			&i.ListenedFraction,
+			&i.ListenedAt,
 			&i.Latest,
 			&i.Candidates,
 		); err != nil {

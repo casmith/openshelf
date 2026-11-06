@@ -125,3 +125,40 @@ func TestFinishHintAbsentWithoutOwnUnlocks(t *testing.T) {
 		t.Errorf("bob (UTC) input %s", input)
 	}
 }
+
+func TestFinishHintForBooksFromAudiobookshelf(t *testing.T) {
+	s, alice, steamAcct := hintSetup(t)
+	abs := testutil.CreateConnectedAccount(t, s.Pool, alice.ID, "audiobookshelf", "abs-alice")
+	progress := func(item db.MediaItem, key string, fraction float64, finished bool, finishedAt, last string) {
+		t.Helper()
+		exec(t, s, `insert into external_progress (account_id, media_item_id, provider_item_key, fraction, finished, finished_at, last_activity_at)
+		            values ($1, $2, $3, $4, $5, nullif($6, '')::timestamptz, nullif($7, '')::timestamptz)`, abs.ID, item.ID, key, fraction, finished, finishedAt, last)
+	}
+	kings := testutil.CreateItem(t, s.Pool, db.MediaKindBook, "The Way of Kings")
+	progress(kings, "li_kings", 1, true, "2026-03-04T03:00:00Z", "2026-05-01T10:00:00Z")
+	// Playtime on a book is ignored: books use only the Audiobookshelf basis.
+	exec(t, s, `insert into external_playtime (account_id, media_item_id, provider_item_key, minutes_total, last_played_at)
+	            values ($1, $2, 'odd', 60, '2020-01-01T10:00:00Z')`, steamAcct.ID, kings.ID)
+	nearly := testutil.CreateItem(t, s.Pool, db.MediaKindBook, "Project Hail Mary")
+	progress(nearly, "li_hm", 0.96, false, "", "2026-03-04T03:00:00Z")
+	half := testutil.CreateItem(t, s.Pool, db.MediaKindBook, "Halfway")
+	progress(half, "li_half", 0.5, false, "", "2026-03-04T03:00:00Z")
+
+	c := s.LoginAs(t, alice)
+	input, hint := finishForm(t, c.Get("/items/"+kings.PublicID.String()).Body)
+	if !strings.Contains(input, `value="2026-03-03"`) || hint != "From Audiobookshelf (finished Mar 3, 2026)" {
+		t.Errorf("finished: input %s hint %q", input, hint)
+	}
+	input, hint = finishForm(t, c.Get("/items/"+nearly.PublicID.String()).Body)
+	if !strings.Contains(input, `value="2026-03-03"`) || hint != "From when you last listened on Audiobookshelf (Mar 3, 2026) — clear it if that&#39;s not right." {
+		t.Errorf("nearly: input %s hint %q", input, hint)
+	}
+	if input, _ := finishForm(t, c.Get("/items/"+half.PublicID.String()).Body); strings.Contains(input, "value=") {
+		t.Errorf("half-listened book prefilled: %s", input)
+	}
+
+	bob := testutil.CreateUser(t, s.Q, "bob")
+	if input, _ := finishForm(t, s.LoginAs(t, bob).Get("/items/"+kings.PublicID.String()).Body); strings.Contains(input, "value=") {
+		t.Errorf("bob sees alice's progress: %s", input)
+	}
+}

@@ -487,7 +487,7 @@ create table external_progress (
 create index external_progress_item_idx on external_progress (media_item_id);
 ```
 
-Source-owned listening progress (Audiobookshelf), written only by the sync runner, like `external_playtime`. `fraction` is 0–1 (1 when finished). `finished` follows the source; `started_at`, `finished_at`, and `last_activity_at` are never cleared by a later observation that lacks them. It's never shown as a personal experience. Progress above 0 sets `played_source = true` on the entry (ADR 0002 rules apply unchanged).
+Source-owned listening progress (Audiobookshelf), written only by the sync runner, like `external_playtime`. `fraction` is 0–1 (1 when finished). `finished` follows the source; `started_at`, `finished_at`, and `last_activity_at` are never cleared by a later observation that lacks them. It's never shown as a personal experience. Progress above 0 sets `played_source = true` on the entry (ADR 0002 rules apply unchanged); for books the UI labels `played` as "Started". Finish suggestions read it for books: `finished` is a Strong suggestion dated by `finished_at`, and `fraction >= 0.95` a Medium one dated by `last_activity_at`.
 
 - `sync_events.kind` adds `progress_changed` (`field = 'progress'`, `before`/`after` as fractions such as `0.4300`) and `source_finished` (`field = 'finished'`, `after` is the finish date `YYYY-MM-DD` or `true`).
 - `connected_accounts.provider = 'audiobookshelf'`: `external_account_id` is the Audiobookshelf user ID, `display_name` the username, and `credentials` the encrypted API key. The server URL is instance config (`OPENSHELF_AUDIOBOOKSHELF_URL`).

@@ -748,7 +748,7 @@ func libraryBody(v libraryView, src sources) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = filterSelect("status", "Status", v.Filter.Status, statusOptions).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = filterSelect("status", "Status", v.Filter.Status, statusOptionsFor(v.Filter.Kind)).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1289,7 +1289,7 @@ func itemPanel(v panelView) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			for _, e := range v.Entries {
-				templ_7745c5c3_Err = panelEntry(e, v.Src).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = panelEntry(e, v.Item.Kind, v.Src).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1351,7 +1351,7 @@ func itemPanel(v panelView) templ.Component {
 	})
 }
 
-func panelEntry(e db.LibraryItemEntriesRow, src sources) templ.Component {
+func panelEntry(e db.LibraryItemEntriesRow, kind db.MediaKind, src sources) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1570,9 +1570,9 @@ func panelEntry(e db.LibraryItemEntriesRow, src sources) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var70 string
-		templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(panelPlayedLabel(e, src))
+		templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(panelPlayedLabel(e, kind, src))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/library/views.templ`, Line: 281, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/library/views.templ`, Line: 281, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
 		if templ_7745c5c3_Err != nil {
@@ -1582,11 +1582,11 @@ func panelEntry(e db.LibraryItemEntriesRow, src sources) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = playedButton(e, "true", "Played", e.PlayedUser != nil && *e.PlayedUser).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = playedButton(e, "true", playedWord(kind, true), e.PlayedUser != nil && *e.PlayedUser).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = playedButton(e, "false", "Not played", e.PlayedUser != nil && !*e.PlayedUser).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = playedButton(e, "false", playedWord(kind, false), e.PlayedUser != nil && !*e.PlayedUser).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -2409,14 +2409,14 @@ func sourceOwnership(user, source *db.Ownership, provider string, src sources) s
 	return ""
 }
 
-func sourcePlayed(user, source *bool, provider string, src sources) string {
+func sourcePlayed(kind db.MediaKind, user, source *bool, provider string, src sources) string {
 	if user != nil || source == nil {
 		return ""
 	}
-	if *source {
-		return "Played · inferred from " + src.name(provider)
+	if kind == db.MediaKindBook {
+		return playedWord(kind, *source) + " · from " + src.name(provider)
 	}
-	return "Not played · inferred from " + src.name(provider)
+	return playedWord(kind, *source) + " · inferred from " + src.name(provider)
 }
 
 func panelOwnershipLabel(e db.LibraryItemEntriesRow, src sources) string {
@@ -2426,24 +2426,30 @@ func panelOwnershipLabel(e db.LibraryItemEntriesRow, src sources) string {
 	return ownershipLabel(e.EffectiveOwnership)
 }
 
-func playedWord(b bool) string {
-	if b {
+// playedWord names the played flag; books say "Started" (the played_* columns are shared).
+func playedWord(kind db.MediaKind, b bool) string {
+	switch {
+	case kind == db.MediaKindBook && b:
+		return "Started"
+	case kind == db.MediaKindBook:
+		return "Not started"
+	case b:
 		return "Played"
 	}
 	return "Not played"
 }
 
-func panelPlayedLabel(e db.LibraryItemEntriesRow, src sources) string {
+func panelPlayedLabel(e db.LibraryItemEntriesRow, kind db.MediaKind, src sources) string {
 	if playedDiffers(e) {
-		return playedWord(*e.PlayedUser) + " (you) · " + src.name(e.SourceProvider) + " says " + strings.ToLower(playedWord(*e.PlayedSource))
+		return playedWord(kind, *e.PlayedUser) + " (you) · " + src.name(e.SourceProvider) + " says " + strings.ToLower(playedWord(kind, *e.PlayedSource))
 	}
-	if l := sourcePlayed(e.PlayedUser, e.PlayedSource, e.SourceProvider, src); l != "" {
+	if l := sourcePlayed(kind, e.PlayedUser, e.PlayedSource, e.SourceProvider, src); l != "" {
 		return l
 	}
 	if e.PlayedUser != nil {
-		return playedWord(e.Played) + " (set by you)"
+		return playedWord(kind, e.Played) + " (set by you)"
 	}
-	return playedWord(e.Played)
+	return playedWord(kind, e.Played)
 }
 
 func listOwnershipLabel(e db.LibraryListEntriesRow, src sources) string {
@@ -2454,7 +2460,7 @@ func listOwnershipLabel(e db.LibraryListEntriesRow, src sources) string {
 }
 
 func listPlayedLabel(e db.LibraryListEntriesRow, src sources) string {
-	return sourcePlayed(e.PlayedUser, e.PlayedSource, e.SourceProvider, src)
+	return sourcePlayed(e.Kind, e.PlayedUser, e.PlayedSource, e.SourceProvider, src)
 }
 
 func achievementText(src sources, itemID int64) string {

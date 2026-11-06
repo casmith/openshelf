@@ -80,10 +80,13 @@ func index(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User)
 		web.Render(w, r, http.StatusOK, libraryBody(v, src))
 		return
 	}
-	if kind == nil || *kind == db.MediaKindGame {
+	if kind == nil || *kind == db.MediaKindGame || *kind == db.MediaKindBook {
 		if v.Suggested, err = suggestions.Count(r.Context(), d, viewer); err != nil {
 			web.Error(w, r, d, err)
 			return
+		}
+		if kind != nil {
+			v.Suggested = v.Suggested.Only(*kind)
 		}
 	}
 	web.Render(w, r, http.StatusOK, libraryPage(web.PageFor(r, d, libraryTitle(kind), nav), v, src))

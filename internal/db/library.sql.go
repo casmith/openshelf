@@ -232,8 +232,10 @@ select le.id, le.public_id, le.user_id, le.media_item_id, le.edition_id, le.owne
        coalesce(le.ownership_user, le.ownership_source, 'not_owned')::ownership as effective_ownership,
        coalesce(le.played_user, le.played_source, x.played_by_experience)::boolean as played,
        coalesce(src.provider, '')::text as source_provider,
-       exists(select 1 from external_playtime ep join connected_accounts a on a.id = ep.account_id
-              where ep.media_item_id = le.media_item_id and a.user_id = le.user_id)::boolean as synced
+       (exists(select 1 from external_playtime ep join connected_accounts a on a.id = ep.account_id
+               where ep.media_item_id = le.media_item_id and a.user_id = le.user_id)
+        or exists(select 1 from external_progress xp join connected_accounts a on a.id = xp.account_id
+                  where xp.media_item_id = le.media_item_id and a.user_id = le.user_id))::boolean as synced
 from library_entries le
 left join editions e on e.id = le.edition_id
 left join platforms p on p.id = e.platform_id

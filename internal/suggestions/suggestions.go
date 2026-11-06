@@ -1,5 +1,5 @@
-// Package suggestions proposes games the viewer has probably finished, based on
-// synced achievements and playtime. It only suggests: every finish is an explicit user action (ADR 0002).
+// Package suggestions proposes items the viewer has probably finished, based on
+// synced achievements, playtime, and listening progress. It only suggests: every finish is an explicit user action (ADR 0002).
 package suggestions
 
 import (
@@ -28,11 +28,17 @@ type Suggestion struct {
 	Minutes  int
 	// Normally is the main-story estimate behind a Maybe suggestion.
 	Normally int
+	// Listened marks an Audiobookshelf suggestion; Fraction is how much was heard.
+	Listened bool
+	Fraction float64
 }
 
 // Maybe is a playtime-only suggestion: no achievement signal, but the viewer has
 // played at least as long as most players take to finish.
 const Maybe = achievements.Level(-1)
+
+// listenedMin is the progress at which an unfinished audiobook is a Medium suggestion.
+const listenedMin = 0.95
 
 func load(ctx context.Context, q *db.Queries, viewer db.User, itemID *int64) ([]Suggestion, error) {
 	rows, err := q.SuggestionsCandidates(ctx, db.SuggestionsCandidatesParams{UserID: viewer.ID, ItemID: itemID})
@@ -54,6 +60,12 @@ func load(ctx context.Context, q *db.Queries, viewer db.User, itemID *int64) ([]
 			Unlocked: g.Unlocked, Total: g.Total, Minutes: int(r.Minutes),
 		}
 		switch {
+		case r.ListenedFinished:
+			s.Verdict = achievements.Verdict{Level: achievements.Strong, FinishAt: r.ListenedFinishedAt}
+			s.Listened, s.Fraction = true, 1
+		case r.ListenedFraction != nil && *r.ListenedFraction >= listenedMin:
+			s.Verdict = achievements.Verdict{Level: achievements.Medium, FinishAt: r.ListenedAt}
+			s.Listened, s.Fraction = true, *r.ListenedFraction
 		case v.Level != achievements.None:
 			s.Verdict = v
 		case r.MaybeNormallyMinutes != nil:
@@ -88,10 +100,54 @@ func List(ctx context.Context, q *db.Queries, viewer db.User) (Groups, error) {
 	return g, err
 }
 
-// Count is the number of current suggestions, in one query.
-func Count(ctx context.Context, d *deps.Deps, viewer db.User) (int, error) {
+// Tally counts current suggestions by kind.
+type Tally struct {
+	Games, Books, Other int
+}
+
+func (t Tally) Total() int { return t.Games + t.Books + t.Other }
+
+// Only keeps the count for one kind.
+func (t Tally) Only(k db.MediaKind) Tally {
+	switch k {
+	case db.MediaKindGame:
+		return Tally{Games: t.Games}
+	case db.MediaKindBook:
+		return Tally{Books: t.Books}
+	}
+	return Tally{}
+}
+
+func tally(ss []Suggestion) Tally {
+	var t Tally
+	for _, s := range ss {
+		switch s.Kind {
+		case db.MediaKindGame:
+			t.Games++
+		case db.MediaKindBook:
+			t.Books++
+		default:
+			t.Other++
+		}
+	}
+	return t
+}
+
+// noun is "game", "book", or "item" when kinds are mixed.
+func (t Tally) noun() string {
+	switch t.Total() {
+	case t.Games:
+		return "game"
+	case t.Books:
+		return "book"
+	}
+	return "item"
+}
+
+// Count tallies current suggestions, in one query.
+func Count(ctx context.Context, d *deps.Deps, viewer db.User) (Tally, error) {
 	all, err := load(ctx, d.Q, viewer, nil)
-	return len(all), err
+	return tally(all), err
 }
 
 // For returns the suggestion for one item, or pgx.ErrNoRows when it isn't one.

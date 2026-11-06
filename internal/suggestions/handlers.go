@@ -68,7 +68,7 @@ func confirmAll(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.
 }
 
 func markAll(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User) {
-	n := 0
+	var n Tally
 	err := d.WithTx(r.Context(), func(q *db.Queries, _ pgx.Tx) error {
 		g, err := List(r.Context(), q, viewer)
 		if err != nil {
@@ -79,14 +79,14 @@ func markAll(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.Use
 				return err
 			}
 		}
-		n = len(g.Strong)
+		n = tally(g.Strong)
 		return nil
 	})
 	if err != nil {
 		web.Error(w, r, d, err)
 		return
 	}
-	web.Flash(r.Context(), d, "Marked "+plural(n, "game")+" as finished.")
+	web.Flash(r.Context(), d, "Marked "+plural(n.Total(), n.noun())+" as finished.")
 	web.Redirect(w, r, pagePath)
 }
 
@@ -148,7 +148,7 @@ func act(a action) func(http.ResponseWriter, *http.Request, *deps.Deps, db.User)
 
 // ItemPanel offers to mark the item finished when it is a current suggestion.
 func ItemPanel(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaItem) (templ.Component, error) {
-	if item.Kind != db.MediaKindGame {
+	if item.Kind != db.MediaKindGame && item.Kind != db.MediaKindBook {
 		return templ.NopComponent, nil
 	}
 	s, err := For(ctx, d.Q, viewer, item.ID)

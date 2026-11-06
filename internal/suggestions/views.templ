@@ -1,6 +1,7 @@
 package suggestions
 
 import (
+	"math"
 	"strconv"
 	"time"
 
@@ -46,19 +47,30 @@ func levelName(l achievements.Level) string {
 	return "medium"
 }
 
+func listenedLine(s Suggestion, loc *time.Location) string {
+	if s.Level != achievements.Strong {
+		return "You listened to " + strconv.Itoa(int(math.Floor(s.Fraction*100))) + "%"
+	}
+	line := "Audiobookshelf says you finished this"
+	if day := FinishDay(s, loc); day != nil {
+		line += " · " + day.Format("Jan 2, 2006")
+	}
+	return line
+}
+
 func playtimeLine(s Suggestion) string {
 	return "You played " + ui.Hours(int32(s.Minutes)) + " · most players finish the main story in " + ui.Hours(int32(s.Normally))
 }
 
-// Link is the compact "N games look finished" entry point; it renders nothing for n = 0.
-templ Link(n int) {
-	if n > 0 {
+// Link is the compact "N games look finished" entry point; it renders nothing for none.
+templ Link(t Tally) {
+	if n := t.Total(); n > 0 {
 		<a href={ templ.SafeURL(pagePath) } class="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline" data-suggestions-count={ strconv.Itoa(n) }>
 			@ui.Icon("check", "h-4 w-4")
 			if n == 1 {
-				1 game looks finished
+				1 { t.noun() } looks finished
 			} else {
-				{ strconv.Itoa(n) } games look finished
+				{ plural(n, t.noun()) } look finished
 			}
 		</a>
 	}
@@ -66,7 +78,7 @@ templ Link(n int) {
 
 templ page(p ui.Page, v pageView) {
 	@ui.Layout(p) {
-		@ui.PageHeader("Possibly finished", "Based on your Steam achievements and playtime. Nothing is marked until you confirm.") {
+		@ui.PageHeader("Possibly finished", "Based on your Steam achievements, playtime, and Audiobookshelf progress. Nothing is marked until you confirm.") {
 			if len(v.Strong) > 0 {
 				@ui.LinkButton("secondary", pagePath+"/all") {
 					Mark all strong as finished
@@ -75,16 +87,16 @@ templ page(p ui.Page, v pageView) {
 		}
 		<div class="max-w-3xl space-y-8">
 			if !v.HasAccounts {
-				@ui.EmptyState("No linked accounts", "Link a Steam account to get suggestions from your achievements.") {
+				@ui.EmptyState("No linked accounts", "Link a Steam or Audiobookshelf account to get suggestions from your achievements and listening.") {
 					@ui.LinkButton("secondary", "/settings/connections") {
 						Connections
 					}
 				}
 			} else if len(v.Strong) == 0 && len(v.Medium) == 0 && len(v.Maybe) == 0 {
-				@ui.EmptyState("Nothing to suggest", "None of your unfinished games have achievements that look like an ending.")
+				@ui.EmptyState("Nothing to suggest", "Nothing unfinished in your synced games or audiobooks looks finished yet.")
 			} else {
-				@group("Strong signals", "An achievement that marks the ending.", v.Strong, v.Loc)
-				@group("Possible", "Every achievement unlocked, or a completion that may not be the main story.", v.Medium, v.Loc)
+				@group("Strong signals", "An achievement that marks the ending, or Audiobookshelf says it's finished.", v.Strong, v.Loc)
+				@group("Possible", "Every achievement unlocked, a completion that may not be the main story, or nearly all of an audiobook.", v.Medium, v.Loc)
 				if len(v.Maybe) > 0 {
 					<details data-maybe-group>
 						<summary class="cursor-pointer">
@@ -127,8 +139,16 @@ templ card(s Suggestion, loc *time.Location) {
 			</div>
 		</a>
 		<div class="min-w-0 flex-1">
-			<a href={ templ.SafeURL(itemURL(s)) } class="font-medium hover:text-accent">{ s.Title }</a>
-			if s.Level == Maybe {
+			<a href={ templ.SafeURL(itemURL(s)) } class="flex items-center gap-2 font-medium hover:text-accent">
+				@ui.KindIcon(string(s.Kind), "h-4 w-4 text-muted")
+				{ s.Title }
+			</a>
+			if s.Listened {
+				<p class="mt-1 text-sm" data-evidence>{ listenedLine(s, loc) }</p>
+				if s.Level == achievements.Medium && s.FinishAt != nil {
+					<p class="text-sm text-muted" data-dated>Dated to when you last listened ({ FinishDay(s, loc).Format("Jan 2, 2006") }).</p>
+				}
+			} else if s.Level == Maybe {
 				<p class="mt-1 text-sm" data-evidence>{ playtimeLine(s) }</p>
 				if s.FinishAt != nil {
 					<p class="text-sm text-muted" data-dated>Dated to when you last played ({ FinishDay(s, loc).Format("Jan 2, 2006") }).</p>
@@ -139,10 +159,10 @@ templ card(s Suggestion, loc *time.Location) {
 			} else {
 				<p class="mt-1 text-sm" data-evidence>{ evidenceLine(s, loc) }</p>
 			}
-			if s.Level == achievements.Medium && s.FinishAt != nil {
+			if s.Level == achievements.Medium && !s.Listened && s.FinishAt != nil {
 				<p class="text-sm text-muted" data-dated>Dated to your last achievement, { FinishDay(s, loc).Format("Jan 2, 2006") }.</p>
 			}
-			if s.Level != Maybe {
+			if s.Level != Maybe && !s.Listened {
 				<p class="mt-1 text-xs text-muted">
 					Achievements { strconv.Itoa(s.Unlocked) }/{ strconv.Itoa(s.Total) }
 					if s.Minutes > 0 {
@@ -177,7 +197,7 @@ templ actionForm(s Suggestion, a, variant string) {
 
 templ confirmPage(p ui.Page, strong []Suggestion, loc *time.Location) {
 	@ui.Layout(p) {
-		@ui.PageHeader("Mark all strong as finished", "Each game is logged as finished on the day its evidence was unlocked.") {
+		@ui.PageHeader("Mark all strong as finished", "Each is logged as finished on the day of its evidence: the ending achievement, or the Audiobookshelf finish.") {
 			@ui.LinkButton("ghost", pagePath) {
 				Cancel
 			}
@@ -200,7 +220,7 @@ templ confirmPage(p ui.Page, strong []Suggestion, loc *time.Location) {
 				</ul>
 				<form method="post" action={ templ.SafeURL(pagePath + "/all") }>
 					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
-						Mark { plural(len(strong), "game") } as finished
+						Mark { plural(len(strong), tally(strong).noun()) } as finished
 					}
 				</form>
 			}
@@ -210,7 +230,11 @@ templ confirmPage(p ui.Page, strong []Suggestion, loc *time.Location) {
 
 templ itemPanel(item db.MediaItem, s Suggestion) {
 	<div class="rounded-lg border border-line bg-surface px-5 py-3 text-sm" id="finish-suggestion">
-		if s.Level == Maybe {
+		if s.Listened && s.Level == achievements.Strong {
+			Audiobookshelf says you finished this —
+		} else if s.Listened {
+			{ listenedLine(s, nil) } on Audiobookshelf —
+		} else if s.Level == Maybe {
 			Your Steam playtime suggests you may have finished this —
 		} else {
 			Steam suggests you finished this —
