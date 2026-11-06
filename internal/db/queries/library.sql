@@ -1,6 +1,6 @@
 -- name: LibraryListEntries :many
 -- Derived values follow docs/data-model.md. k_num/k_text are the keyset sort keys;
--- null_key places missing release dates and ratings last in either direction.
+-- null_key places missing release dates, ratings, and lengths last in either direction.
 with base as (
   select le.public_id, le.created_at, le.tags, le.backlog, le.media_item_id,
          coalesce(le.ownership_user, le.ownership_source, 'not_owned')::ownership as ownership,
@@ -9,6 +9,7 @@ with base as (
          coalesce(e.cover_image_id, m.cover_image_id) as cover_image_id,
          e.format as edition_format, p.slug as platform_slug, p.name as platform_name, p.short_name as platform_short_name,
          r.rating,
+         ttb.normally_minutes as length_minutes,
          x.in_progress, x.finished,
          coalesce(le.played_user, le.played_source, x.played_by_experience)::boolean as played
   from library_entries le
@@ -16,6 +17,7 @@ with base as (
   left join editions e on e.id = le.edition_id
   left join platforms p on p.id = e.platform_id
   left join reviews r on r.user_id = le.user_id and r.media_item_id = le.media_item_id
+  left join game_time_to_beat ttb on ttb.media_item_id = le.media_item_id and m.kind = 'game' and ttb.normally_minutes > 0
   cross join lateral (
     select coalesce(bool_or(ex.state in ('active', 'paused')), false)::boolean as in_progress,
            coalesce(bool_or(ex.state = 'finished'), false)::boolean as finished,
@@ -39,6 +41,7 @@ with base as (
     and (sqlc.narg(tag)::text is null or sqlc.narg(tag)::text = any(le.tags))
     and (sqlc.narg(rating_min)::int is null or r.rating >= sqlc.narg(rating_min)::int)
     and (not @unrated::boolean or r.rating is null)
+    and (not @length_filter::boolean or m.kind = 'game')
     and (sqlc.narg(added_from)::date is null or (le.created_at at time zone @tz::text)::date >= sqlc.narg(added_from)::date)
     and (sqlc.narg(added_to)::date is null or (le.created_at at time zone @tz::text)::date <= sqlc.narg(added_to)::date)
 ),
@@ -49,6 +52,7 @@ keyed as (
             when 'added' then extract(epoch from b.created_at)::float8
             when 'release' then coalesce(extract(epoch from coalesce(b.release_date, make_date(b.release_year::int, 1, 1)))::float8, @null_key::float8)
             when 'rating' then coalesce(b.rating::float8, @null_key::float8)
+            when 'length' then coalesce(b.length_minutes::float8, @null_key::float8)
             else 0::float8
           end)::float8 as k_num,
          lower(b.sort_title)::text as k_text
@@ -56,7 +60,7 @@ keyed as (
 )
 select k.public_id, k.created_at, k.tags, k.ownership, k.media_item_id,
        k.ownership_user, k.played_user, k.ownership_source, k.played_source, k.source_provider, k.item_public_id, k.kind, k.title, k.release_date, k.release_year,
-       k.cover_image_id, k.edition_format, k.platform_name, k.platform_short_name, k.rating,
+       k.cover_image_id, k.edition_format, k.platform_name, k.platform_short_name, k.rating, k.length_minutes,
        k.in_progress, k.finished, k.played, k.in_backlog, k.k_num, k.k_text
 from keyed k
 where (sqlc.narg(ownership)::ownership is null or k.ownership = sqlc.narg(ownership)::ownership)
@@ -66,6 +70,9 @@ where (sqlc.narg(ownership)::ownership is null or k.ownership = sqlc.narg(owners
        or (sqlc.narg(status)::text = 'backlog' and k.in_backlog)
        or (sqlc.narg(status)::text = 'played' and k.played)
        or (sqlc.narg(status)::text = 'not_played' and not k.played))
+  and (not @no_length::boolean or k.length_minutes is null)
+  and (sqlc.narg(length_min)::int is null or k.length_minutes >= sqlc.narg(length_min)::int)
+  and (sqlc.narg(length_max)::int is null or k.length_minutes < sqlc.narg(length_max)::int)
   and (not @has_cursor::boolean
        or (case when @num_desc::boolean then k.k_num < @cursor_num::float8 else k.k_num > @cursor_num::float8 end)
        or (k.k_num = @cursor_num::float8 and (case when @text_desc::boolean
