@@ -141,3 +141,45 @@ func (q *Queries) AchievementsForItem(ctx context.Context, arg AchievementsForIt
 	}
 	return items, nil
 }
+
+const achievementsUnlocksForItem = `-- name: AchievementsUnlocksForItem :many
+select a.name, coalesce(a.description, '')::text as description, min(u.unlocked_at)::timestamptz as unlocked_at
+from achievement_unlocks u
+join achievements a on a.id = u.achievement_id
+join connected_accounts ca on ca.id = u.account_id
+where ca.user_id = $1 and a.media_item_id = $2::bigint and u.unlocked_at is not null
+group by a.id
+order by unlocked_at, a.id
+`
+
+type AchievementsUnlocksForItemParams struct {
+	UserID int64
+	ItemID int64
+}
+
+type AchievementsUnlocksForItemRow struct {
+	Name        string
+	Description string
+	UnlockedAt  time.Time
+}
+
+// The viewer's dated unlocks for an item, earliest first.
+func (q *Queries) AchievementsUnlocksForItem(ctx context.Context, arg AchievementsUnlocksForItemParams) ([]AchievementsUnlocksForItemRow, error) {
+	rows, err := q.db.Query(ctx, achievementsUnlocksForItem, arg.UserID, arg.ItemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AchievementsUnlocksForItemRow{}
+	for rows.Next() {
+		var i AchievementsUnlocksForItemRow
+		if err := rows.Scan(&i.Name, &i.Description, &i.UnlockedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

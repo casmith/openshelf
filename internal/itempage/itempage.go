@@ -18,6 +18,7 @@ import (
 	"github.com/casmith/openshelf/internal/library"
 	"github.com/casmith/openshelf/internal/lists"
 	"github.com/casmith/openshelf/internal/reviews"
+	"github.com/casmith/openshelf/internal/suggestions"
 	"github.com/casmith/openshelf/internal/synchistory"
 	"github.com/casmith/openshelf/internal/web"
 )
@@ -27,6 +28,7 @@ type panelFunc func(ctx context.Context, d *deps.Deps, viewer db.User, item db.M
 var panels = []panelFunc{
 	library.ItemPanel,
 	experiences.ItemPanel,
+	suggestions.ItemPanel,
 	achievements.ItemPanel,
 	synchistory.ItemPanel,
 	reviews.ItemPanel,

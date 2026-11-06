@@ -22,6 +22,7 @@ import (
 	"github.com/casmith/openshelf/internal/pwa"
 	"github.com/casmith/openshelf/internal/reviews"
 	"github.com/casmith/openshelf/internal/stats"
+	"github.com/casmith/openshelf/internal/suggestions"
 	"github.com/casmith/openshelf/internal/sync/steam"
 	"github.com/casmith/openshelf/internal/synchistory"
 	"github.com/casmith/openshelf/internal/web"
@@ -47,6 +48,7 @@ func routes(mux *http.ServeMux, d *deps.Deps) {
 	steam.Register(mux, d)
 	achievements.Register(mux, d)
 	synchistory.Register(mux, d)
+	suggestions.Register(mux, d)
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if name, ok := profile.Username(r.URL.Path); ok && (r.Method == http.MethodGet || r.Method == http.MethodHead) {

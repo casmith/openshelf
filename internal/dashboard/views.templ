@@ -10,12 +10,14 @@ import (
 	"github.com/casmith/openshelf/internal/images"
 	"github.com/casmith/openshelf/internal/journal"
 	"github.com/casmith/openshelf/internal/reviews"
+	"github.com/casmith/openshelf/internal/suggestions"
 	"github.com/casmith/openshelf/internal/web/ui"
 )
 
 templ home(p ui.Page, h homeData) {
 	@ui.Layout(p) {
 		@ui.PageHeader(h.Greeting+", "+p.User.DisplayName, "Here's what's happening in your library.") {
+			@suggestions.Link(h.Suggested)
 		}
 		<ul class="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="Library summary">
 			@counter("cataloged", "Cataloged", h.Counters.Cataloged, "library", "text-accent")

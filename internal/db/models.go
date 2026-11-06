@@ -1113,6 +1113,12 @@ type FilmDetail struct {
 	RuntimeMinutes *int32
 }
 
+type FinishSuggestionDismissal struct {
+	UserID      int64
+	MediaItemID int64
+	CreatedAt   time.Time
+}
+
 type GameDetail struct {
 	MediaItemID int64
 	Franchise   *string

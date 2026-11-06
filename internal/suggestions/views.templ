@@ -1,0 +1,192 @@
+package suggestions
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/casmith/openshelf/internal/achievements"
+	"github.com/casmith/openshelf/internal/db"
+	"github.com/casmith/openshelf/internal/images"
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+func itemURL(s Suggestion) string { return "/items/" + s.PublicID.String() }
+
+func actionURL(s Suggestion, a string) string { return pagePath + "/" + s.PublicID.String() + "/" + a }
+
+func evidenceLine(s Suggestion, loc *time.Location) string {
+	line := s.Evidence.Name
+	if s.Evidence.Description != "" {
+		line += " — " + s.Evidence.Description
+	}
+	if s.Evidence.At != nil {
+		line += " · unlocked " + s.Evidence.At.In(loc).Format("Jan 2, 2006")
+	}
+	return line
+}
+
+func playtime(minutes int) string {
+	if minutes < 60 {
+		return strconv.Itoa(minutes) + " min"
+	}
+	h := float64(minutes) / 60
+	if h >= 10 {
+		return strconv.Itoa(int(h+0.5)) + " h"
+	}
+	return strconv.FormatFloat(h, 'f', 1, 64) + " h"
+}
+
+func levelName(l achievements.Level) string {
+	if l == achievements.Strong {
+		return "strong"
+	}
+	return "medium"
+}
+
+// Link is the compact "N games look finished" entry point; it renders nothing for n = 0.
+templ Link(n int) {
+	if n > 0 {
+		<a href={ templ.SafeURL(pagePath) } class="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline" data-suggestions-count={ strconv.Itoa(n) }>
+			@ui.Icon("check", "h-4 w-4")
+			if n == 1 {
+				1 game looks finished
+			} else {
+				{ strconv.Itoa(n) } games look finished
+			}
+		</a>
+	}
+}
+
+templ page(p ui.Page, v pageView) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Possibly finished", "Based on your Steam achievements. Nothing is marked until you confirm.") {
+			if len(v.Strong) > 0 {
+				@ui.LinkButton("secondary", pagePath+"/all") {
+					Mark all strong as finished
+				}
+			}
+		}
+		<div class="max-w-3xl space-y-8">
+			if !v.HasAccounts {
+				@ui.EmptyState("No linked accounts", "Link a Steam account to get suggestions from your achievements.") {
+					@ui.LinkButton("secondary", "/settings/connections") {
+						Connections
+					}
+				}
+			} else if len(v.Strong) == 0 && len(v.Medium) == 0 {
+				@ui.EmptyState("Nothing to suggest", "None of your unfinished games have achievements that look like an ending.")
+			} else {
+				@group("Strong signals", "An achievement that marks the ending.", v.Strong, v.Loc)
+				@group("Possible", "Every achievement unlocked, or a completion that may not be the main story.", v.Medium, v.Loc)
+			}
+		</div>
+	}
+}
+
+templ group(title, hint string, ss []Suggestion, loc *time.Location) {
+	if len(ss) > 0 {
+		<section class="space-y-3">
+			<div>
+				<h2 class="font-semibold">{ title }</h2>
+				<p class="text-sm text-muted">{ hint }</p>
+			</div>
+			<ul class="space-y-3">
+				for _, s := range ss {
+					@card(s, loc)
+				}
+			</ul>
+		</section>
+	}
+}
+
+templ card(s Suggestion, loc *time.Location) {
+	<li class="flex gap-4 rounded-lg border border-line bg-surface p-4" data-suggestion={ s.PublicID.String() } data-level={ levelName(s.Level) }>
+		<a href={ templ.SafeURL(itemURL(s)) } class="block w-16 shrink-0">
+			<div class="aspect-[2/3] overflow-hidden rounded-md border border-line bg-surface-2">
+				<img src={ images.CoverURL(s.CoverImageID, s.Kind, images.Thumb) } alt="" loading="lazy" class="h-full w-full object-cover"/>
+			</div>
+		</a>
+		<div class="min-w-0 flex-1">
+			<a href={ templ.SafeURL(itemURL(s)) } class="font-medium hover:text-accent">{ s.Title }</a>
+			if s.AllUnlocked {
+				<p class="mt-1 text-sm">All achievements unlocked</p>
+				<p class="text-sm text-muted">Latest: { evidenceLine(s, loc) }</p>
+			} else {
+				<p class="mt-1 text-sm" data-evidence>{ evidenceLine(s, loc) }</p>
+			}
+			if s.Level == achievements.Medium && s.FinishAt != nil {
+				<p class="text-sm text-muted" data-dated>Dated to your last achievement, { FinishDay(s, loc).Format("Jan 2, 2006") }.</p>
+			}
+			<p class="mt-1 text-xs text-muted">
+				Achievements { strconv.Itoa(s.Unlocked) }/{ strconv.Itoa(s.Total) }
+				if s.Minutes > 0 {
+					· { playtime(s.Minutes) } played
+				}
+			</p>
+			<div class="mt-3 flex flex-wrap gap-2">
+				if s.FinishAt != nil {
+					@actionForm(s, "finish", "primary") {
+						Mark finished
+					}
+				}
+				@actionForm(s, "finish-undated", "secondary") {
+					Finished, date unknown
+				}
+				@actionForm(s, "dismiss", "ghost") {
+					Not finished
+				}
+			</div>
+		</div>
+	</li>
+}
+
+templ actionForm(s Suggestion, a, variant string) {
+	<form method="post" action={ templ.SafeURL(actionURL(s, a)) } hx-post={ actionURL(s, a) } hx-target="closest li" hx-swap="outerHTML">
+		@ui.Button(variant, templ.Attributes{"type": "submit"}) {
+			{ children... }
+		}
+	</form>
+}
+
+templ confirmPage(p ui.Page, strong []Suggestion, loc *time.Location) {
+	@ui.Layout(p) {
+		@ui.PageHeader("Mark all strong as finished", "Each game is logged as finished on the day its evidence was unlocked.") {
+			@ui.LinkButton("ghost", pagePath) {
+				Cancel
+			}
+		}
+		@ui.Card("max-w-2xl space-y-4") {
+			if len(strong) == 0 {
+				<p class="text-sm text-muted">There are no strong suggestions right now.</p>
+			} else {
+				<ul class="list-disc space-y-1 pl-5 text-sm">
+					for _, s := range strong {
+						<li data-confirm={ s.PublicID.String() }>
+							<span class="font-medium">{ s.Title }</span>
+							if day := FinishDay(s, loc); day != nil {
+								<span class="text-muted">· { day.Format("Jan 2, 2006") }</span>
+							} else {
+								<span class="text-muted">· date unknown</span>
+							}
+						</li>
+					}
+				</ul>
+				<form method="post" action={ templ.SafeURL(pagePath + "/all") }>
+					@ui.Button("primary", templ.Attributes{"type": "submit"}) {
+						Mark { plural(len(strong), "game") } as finished
+					}
+				</form>
+			}
+		}
+	}
+}
+
+templ itemPanel(item db.MediaItem) {
+	<div class="rounded-lg border border-line bg-surface px-5 py-3 text-sm" id="finish-suggestion">
+		Steam suggests you finished this —
+		<form method="post" action={ templ.SafeURL(pagePath + "/" + item.PublicID.String() + "/finish") } class="inline">
+			<input type="hidden" name="next" value={ "/items/" + item.PublicID.String() }/>
+			<button type="submit" class="font-medium text-accent hover:underline">Mark finished</button>
+		</form>
+	</div>
+}
