@@ -36,7 +36,8 @@ func TestPageListsAdaptersAndAccounts(t *testing.T) {
 		t.Fatalf("status %d", res.StatusCode)
 	}
 	for _, want := range []string{"Steam", "an administrator needs to configure it", acct.PublicID.String(),
-		"Last sync was partial", "Game details are private", "/settings/connections/" + acct.PublicID.String() + "/history"} {
+		"Last sync was partial", "Game details are private", "/settings/connections/" + acct.PublicID.String() + "/history",
+		"/connections/" + acct.PublicID.String() + "/unlink"} {
 		if !strings.Contains(res.Body, want) {
 			t.Errorf("page missing %q", want)
 		}
