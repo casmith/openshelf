@@ -127,7 +127,9 @@ templ page(pg ui.Page, p profileData) {
 								@ui.KindIcon(string(s.Kind), "h-4 w-4 text-muted")
 								<a href={ templ.SafeURL(journal.ItemHref(s.PublicID)) } class="min-w-0 flex-1 truncate font-medium hover:text-accent">{ s.Title }</a>
 								@ui.Badge(stateLabel(s.State))
-								<span class="text-xs text-muted">{ s.Day.Format("Jan 2, 2006") }</span>
+								if d := stalledDay(s); d != nil {
+									<span class="text-xs text-muted">{ d.Format("Jan 2, 2006") }</span>
+								}
 							</li>
 						}
 					</ul>
@@ -236,9 +238,9 @@ templ section(id, title string) {
 // completedPage is one keyset page of completions; the "more" link swaps itself for the next page.
 templ completedPage(p profileData) {
 	for i, g := range p.Completed.Years {
-		<div class="mb-6" data-year={ strconv.Itoa(int(g.Year)) }>
+		<div class="mb-6" data-year={ g.Label() }>
 			if i > 0 || !p.Completed.ContinuesYear {
-				<h3 class="mb-3 text-sm font-semibold text-muted">{ strconv.Itoa(int(g.Year)) }</h3>
+				<h3 class="mb-3 text-sm font-semibold text-muted">{ g.Label() }</h3>
 			}
 			@ui.CoverGrid() {
 				for _, c := range g.Items {
@@ -267,7 +269,9 @@ templ completedCard(c db.ProfileCompletedRow, display db.RatingDisplay) {
 		@cover(c.PublicID, c.Kind, c.Title, c.CoverImageID)
 		<p class="flex items-center gap-1.5 text-xs text-muted">
 			@ui.KindIcon(string(c.Kind), "h-3.5 w-3.5")
-			<span>{ c.LastDay.Format("Jan 2") }</span>
+			if c.LastDay != nil {
+				<span>{ c.LastDay.Format("Jan 2") }</span>
+			}
 			if c.Times > 1 {
 				<span data-times>
 					@ui.Badge("×" + strconv.Itoa(int(c.Times)))

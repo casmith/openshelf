@@ -107,6 +107,7 @@ type Stats struct {
 	Period       Period
 	Display      db.RatingDisplay
 	Completed    int
+	Undated      int // all-time completions without a date, which the timeline can't place
 	ByKind       []KindCount
 	Timeline     []Bucket
 	RatedCount   int
@@ -137,6 +138,7 @@ func Load(ctx context.Context, q *db.Queries, viewer db.User, p Period) (Stats, 
 	for _, k := range kinds {
 		counts[k.Kind] = int(k.Items)
 		s.Completed += int(k.Items)
+		s.Undated += int(k.Undated)
 	}
 	for _, k := range Kinds {
 		s.ByKind = append(s.ByKind, KindCount{Kind: k, Count: counts[k]})

@@ -76,3 +76,9 @@ limit 1;
 
 -- name: ExperiencesShowEpisodeCount :one
 select episode_count from show_details where media_item_id = @media_item_id;
+
+-- name: ExperiencesHasEvent :one
+select exists (
+  select 1 from activity_events
+  where user_id = @user_id and experience_id = @experience_id and verb = @verb
+)::bool;

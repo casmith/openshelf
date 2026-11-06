@@ -235,7 +235,7 @@ create table experiences (
   edition_id       bigint references editions,
   state            experience_state not null default 'active',
   started_on       date,
-  finished_on      date,                                  -- set for finished or abandoned
+  finished_on      date,                                  -- finished or abandoned; null = date unknown
   progress_unit    progress_unit,
   progress_current numeric(10,2),
   progress_total   numeric(10,2),

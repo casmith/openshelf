@@ -12,12 +12,13 @@ import (
 
 const statsCompletedByKind = `-- name: StatsCompletedByKind :many
 
-select m.kind, count(distinct e.media_item_id)::int as items
+select m.kind, count(distinct e.media_item_id)::int as items,
+       count(*) filter (where e.finished_on is null)::int as undated
 from experiences e
 join media_items m on m.id = e.media_item_id
 where e.user_id = $1
   and e.state = 'finished'
-  and e.finished_on is not null
+  and (e.finished_on is not null or ($2::date is null and $3::date is null))
   and ($2::date is null or e.finished_on >= $2::date)
   and ($3::date is null or e.finished_on < $3::date)
 group by m.kind
@@ -31,12 +32,14 @@ type StatsCompletedByKindParams struct {
 }
 
 type StatsCompletedByKindRow struct {
-	Kind  MediaKind
-	Items int32
+	Kind    MediaKind
+	Items   int32
+	Undated int32
 }
 
 // Period bounds are half-open; null means unbounded. Dates bound finished_on,
 // timestamps (the viewer's local midnight) bound created_at and occurred_at.
+// Undated finishes count only for all time (both date bounds null).
 func (q *Queries) StatsCompletedByKind(ctx context.Context, arg StatsCompletedByKindParams) ([]StatsCompletedByKindRow, error) {
 	rows, err := q.db.Query(ctx, statsCompletedByKind, arg.UserID, arg.FromDate, arg.ToDate)
 	if err != nil {
@@ -46,7 +49,7 @@ func (q *Queries) StatsCompletedByKind(ctx context.Context, arg StatsCompletedBy
 	items := []StatsCompletedByKindRow{}
 	for rows.Next() {
 		var i StatsCompletedByKindRow
-		if err := rows.Scan(&i.Kind, &i.Items); err != nil {
+		if err := rows.Scan(&i.Kind, &i.Items, &i.Undated); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -114,7 +117,8 @@ with x as (
                    where pe.experience_id = e.id
                      and pe.occurred_at < $2::timestamptz
                    order by pe.occurred_at desc, pe.id desc limit 1), 0) as start_value,
-         (e.state = 'finished' and e.finished_on is not null
+         (e.state = 'finished'
+           and (e.finished_on is not null or ($3::date is null and $4::date is null))
            and ($3::date is null or e.finished_on >= $3::date)
            and ($4::date is null or e.finished_on < $4::date)) as finished_in_period,
          coalesce(e.progress_current, e.progress_total, 0) as fallback
@@ -211,7 +215,7 @@ join media_items m on m.id = e.media_item_id
 cross join lateral unnest(m.genres) as g(genre)
 where e.user_id = $1
   and e.state = 'finished'
-  and e.finished_on is not null
+  and (e.finished_on is not null or ($2::date is null and $3::date is null))
   and ($2::date is null or e.finished_on >= $2::date)
   and ($3::date is null or e.finished_on < $3::date)
 group by g.genre

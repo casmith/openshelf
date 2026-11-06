@@ -1,13 +1,15 @@
 -- Period bounds are half-open; null means unbounded. Dates bound finished_on,
 -- timestamps (the viewer's local midnight) bound created_at and occurred_at.
+-- Undated finishes count only for all time (both date bounds null).
 
 -- name: StatsCompletedByKind :many
-select m.kind, count(distinct e.media_item_id)::int as items
+select m.kind, count(distinct e.media_item_id)::int as items,
+       count(*) filter (where e.finished_on is null)::int as undated
 from experiences e
 join media_items m on m.id = e.media_item_id
 where e.user_id = @user_id
   and e.state = 'finished'
-  and e.finished_on is not null
+  and (e.finished_on is not null or (sqlc.narg(from_date)::date is null and sqlc.narg(to_date)::date is null))
   and (sqlc.narg(from_date)::date is null or e.finished_on >= sqlc.narg(from_date)::date)
   and (sqlc.narg(to_date)::date is null or e.finished_on < sqlc.narg(to_date)::date)
 group by m.kind
@@ -50,7 +52,8 @@ with x as (
                    where pe.experience_id = e.id
                      and pe.occurred_at < sqlc.narg(from_ts)::timestamptz
                    order by pe.occurred_at desc, pe.id desc limit 1), 0) as start_value,
-         (e.state = 'finished' and e.finished_on is not null
+         (e.state = 'finished'
+           and (e.finished_on is not null or (sqlc.narg(from_date)::date is null and sqlc.narg(to_date)::date is null))
            and (sqlc.narg(from_date)::date is null or e.finished_on >= sqlc.narg(from_date)::date)
            and (sqlc.narg(to_date)::date is null or e.finished_on < sqlc.narg(to_date)::date)) as finished_in_period,
          coalesce(e.progress_current, e.progress_total, 0) as fallback
@@ -75,7 +78,7 @@ join media_items m on m.id = e.media_item_id
 cross join lateral unnest(m.genres) as g(genre)
 where e.user_id = @user_id
   and e.state = 'finished'
-  and e.finished_on is not null
+  and (e.finished_on is not null or (sqlc.narg(from_date)::date is null and sqlc.narg(to_date)::date is null))
   and (sqlc.narg(from_date)::date is null or e.finished_on >= sqlc.narg(from_date)::date)
   and (sqlc.narg(to_date)::date is null or e.finished_on < sqlc.narg(to_date)::date)
 group by g.genre

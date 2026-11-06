@@ -295,7 +295,7 @@ func (im *importer) applyCSVRow(row csvRow) error {
 					return err
 				}
 			}
-			if *row.state != db.ExperienceStateActive {
+			if *row.state != db.ExperienceStateActive && row.finishedOn != nil {
 				verb := db.ActivityVerbFinished
 				if *row.state == db.ExperienceStateAbandoned {
 					verb = db.ActivityVerbAbandoned

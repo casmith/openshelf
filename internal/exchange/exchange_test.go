@@ -400,7 +400,64 @@ func TestJSONImportIntoFreshInstanceCreatesItems(t *testing.T) {
 	}
 }
 
+func TestJSONImportKeepsUndatedFinishes(t *testing.T) {
+	src := testutil.NewServer(t)
+	alice := testutil.CreateUser(t, src.Q, "alice")
+	game := testutil.CreateItem(t, src.Pool, db.MediaKindGame, "Shenmue")
+	createExperience(t, src, alice.ID, game.ID, db.ExperienceStateFinished, "", "")
+	doc, raw := export(t, src.LoginAs(t, alice))
+	if len(doc.Experiences) != 1 || doc.Experiences[0].FinishedOn != nil {
+		t.Fatalf("exported experiences = %+v", doc.Experiences)
+	}
+	blank := strings.Replace(string(raw), `"state":"finished"`, `"state":"finished","finished_on":""`, 1)
+	if blank == string(raw) {
+		t.Fatal("couldn't add a blank finished_on to the export")
+	}
+
+	for name, content := range map[string]string{"omitted": string(raw), "blank": blank} {
+		dst := testutil.NewServer(t)
+		carol := testutil.CreateUser(t, dst.Q, "carol")
+		j, _ := importFile(t, dst, dst.LoginAs(t, carol), "export.json", []byte(content))
+		if r := result(t, dst, j.ID); r.Status != exchange.StatusDone || len(r.Errors) != 0 {
+			t.Fatalf("%s: result = %+v", name, r)
+		}
+		if n := count(t, dst, `select count(*) from experiences where user_id = $1 and state = 'finished' and finished_on is null`, carol.ID); n != 1 {
+			t.Errorf("%s: undated finish not kept as null", name)
+		}
+		if n := count(t, dst, `select count(*) from activity_events where user_id = $1 and verb = 'finished'`, carol.ID); n != 0 {
+			t.Errorf("%s: undated finish recorded %d finished events", name, n)
+		}
+	}
+}
+
 const csvHeader = "kind,title,year,isbn13,tmdb_id,igdb_id,platform,ownership,backlog,status,started_on,finished_on,rating_100,review,tags\n"
+
+func TestCSVImportBlankFinishDate(t *testing.T) {
+	s := testutil.NewServer(t)
+	alice := testutil.CreateUser(t, s.Q, "alice")
+	c := s.LoginAs(t, alice)
+	csv := csvHeader +
+		"game,Beaten Long Ago,1998,,,,,owned,,finished,,,,,\n" +
+		"game,Dropped Long Ago,1999,,,,,owned,,abandoned,,,,,\n" +
+		"game,Dated Finish,2000,,,,,owned,,finished,,2021-06-01,,,\n"
+	j, _ := importFile(t, s, c, "old.csv", []byte(csv))
+	if r := result(t, s, j.ID); r.Status != exchange.StatusDone || len(r.Errors) != 0 {
+		t.Fatalf("result = %+v", r)
+	}
+	if n := count(t, s, `select count(*) from experiences where user_id = $1 and state in ('finished', 'abandoned') and finished_on is null`, alice.ID); n != 2 {
+		t.Errorf("undated finishes stored with a date: %d null, want 2", n)
+	}
+	if n := count(t, s, `select count(*) from activity_events where user_id = $1 and verb in ('finished', 'abandoned')`, alice.ID); n != 1 {
+		t.Errorf("%d finish events, want 1 for the dated row only", n)
+	}
+	if n := count(t, s, `select count(*) from activity_events where user_id = $1 and verb = 'finished' and occurred_at::date = '2021-06-01'`, alice.ID); n != 1 {
+		t.Error("dated finish not recorded at its date")
+	}
+	j2, _ := importFile(t, s, c, "old.csv", []byte(csv))
+	if r := result(t, s, j2.ID); r.Skipped != 3 {
+		t.Errorf("re-import = %+v, want 3 skipped", r)
+	}
+}
 
 func TestCSVImportMatchesAndIsIdempotent(t *testing.T) {
 	s := testutil.NewServer(t)

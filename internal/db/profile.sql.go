@@ -77,41 +77,49 @@ func (q *Queries) ProfileBacklog(ctx context.Context, arg ProfileBacklogParams) 
 
 const profileCompleted = `-- name: ProfileCompleted :many
 with fin as (
-  select x.media_item_id,
-         coalesce(x.finished_on, (x.updated_at at time zone $7::text)::date) as day
+  select x.media_item_id, x.finished_on, x.updated_at
   from experiences x
   where x.user_id = $1 and x.state = 'finished'
     and (x.user_id = $2::bigint or x.visibility in ('instance', 'public'))
 ), grp as (
-  select media_item_id, extract(year from day)::int as year, max(day)::date as last_day, count(*)::int as times
+  select media_item_id, null::date as last_day, max(updated_at)::timestamptz as last_at, count(*)::int as times
   from fin
-  group by media_item_id, extract(year from day)
+  where finished_on is null
+  group by media_item_id
+  union all
+  select media_item_id, max(finished_on)::date, max(updated_at)::timestamptz, count(*)::int
+  from fin
+  where finished_on is not null
+  group by media_item_id, extract(year from finished_on)
 )
-select g.year, g.last_day, g.times, m.public_id, m.kind, m.title, m.cover_image_id, r.rating
+select g.last_day, g.last_at, g.times, m.public_id, m.kind, m.title, m.cover_image_id, r.rating
 from grp g
 join media_items m on m.id = g.media_item_id
 left join reviews r on r.user_id = $1 and r.media_item_id = g.media_item_id
   and (r.user_id = $2::bigint or r.visibility in ('instance', 'public'))
 where ($3::media_kind is null or m.kind = $3::media_kind)
-  and ($4::date is null
-       or (g.last_day, m.public_id) < ($4::date, $5::uuid))
-order by g.last_day desc, m.public_id desc
-limit $6::int
+  and ($4::uuid is null
+       or ($5::date is not null
+           and (g.last_day is null or (g.last_day, m.public_id) < ($5::date, $4::uuid)))
+       or ($5::date is null and g.last_day is null
+           and (g.last_at, m.public_id) < ($6::timestamptz, $4::uuid)))
+order by g.last_day desc nulls last, case when g.last_day is null then g.last_at end desc, m.public_id desc
+limit $7::int
 `
 
 type ProfileCompletedParams struct {
 	OwnerID   int64
 	ViewerID  int64
 	Kind      *MediaKind
-	BeforeDay *time.Time
 	BeforeID  *uuid.UUID
+	BeforeDay *time.Time
+	BeforeAt  *time.Time
 	Lim       int32
-	Tz        string
 }
 
 type ProfileCompletedRow struct {
-	Year         int32
-	LastDay      time.Time
+	LastDay      *time.Time
+	LastAt       time.Time
 	Times        int32
 	PublicID     uuid.UUID
 	Kind         MediaKind
@@ -120,17 +128,18 @@ type ProfileCompletedRow struct {
 	Rating       *int16
 }
 
-// Finishes grouped per item and calendar year (dates without finished_on fall
-// back to the owner's local date of the last update), newest first.
+// Dated finishes grouped per item and calendar year, newest first, then undated
+// finishes grouped per item (last_day null) by latest update. Keyset pages pass
+// before_day for a dated cursor, or before_at for an undated one.
 func (q *Queries) ProfileCompleted(ctx context.Context, arg ProfileCompletedParams) ([]ProfileCompletedRow, error) {
 	rows, err := q.db.Query(ctx, profileCompleted,
 		arg.OwnerID,
 		arg.ViewerID,
 		arg.Kind,
-		arg.BeforeDay,
 		arg.BeforeID,
+		arg.BeforeDay,
+		arg.BeforeAt,
 		arg.Lim,
-		arg.Tz,
 	)
 	if err != nil {
 		return nil, err
@@ -140,8 +149,8 @@ func (q *Queries) ProfileCompleted(ctx context.Context, arg ProfileCompletedPara
 	for rows.Next() {
 		var i ProfileCompletedRow
 		if err := rows.Scan(
-			&i.Year,
 			&i.LastDay,
+			&i.LastAt,
 			&i.Times,
 			&i.PublicID,
 			&i.Kind,
@@ -420,10 +429,10 @@ func (q *Queries) ProfileReviews(ctx context.Context, arg ProfileReviewsParams) 
 }
 
 const profileStalled = `-- name: ProfileStalled :many
-select m.public_id, m.kind, m.title, x.state, x.day
+select m.public_id, m.kind, m.title, x.state, x.finished_on, x.paused_on
 from (
-  select distinct on (e.media_item_id) e.media_item_id, e.state, e.updated_at, e.id,
-         coalesce(e.finished_on, (e.updated_at at time zone $1::text)::date)::date as day
+  select distinct on (e.media_item_id) e.media_item_id, e.state, e.updated_at, e.id, e.finished_on,
+         (e.updated_at at time zone $1::text)::date as paused_on
   from experiences e
   where e.user_id = $2 and e.state in ('paused', 'abandoned')
     and (e.user_id = $3::bigint or e.visibility in ('instance', 'public'))
@@ -444,11 +453,12 @@ type ProfileStalledParams struct {
 }
 
 type ProfileStalledRow struct {
-	PublicID uuid.UUID
-	Kind     MediaKind
-	Title    string
-	State    ExperienceState
-	Day      time.Time
+	PublicID   uuid.UUID
+	Kind       MediaKind
+	Title      string
+	State      ExperienceState
+	FinishedOn *time.Time
+	PausedOn   time.Time
 }
 
 func (q *Queries) ProfileStalled(ctx context.Context, arg ProfileStalledParams) ([]ProfileStalledRow, error) {
@@ -471,7 +481,8 @@ func (q *Queries) ProfileStalled(ctx context.Context, arg ProfileStalledParams) 
 			&i.Kind,
 			&i.Title,
 			&i.State,
-			&i.Day,
+			&i.FinishedOn,
+			&i.PausedOn,
 		); err != nil {
 			return nil, err
 		}

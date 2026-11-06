@@ -24,37 +24,73 @@ const (
 	listsLimit      = 50
 )
 
+// cursor is the last completion shown: a dated group (Day set) or an undated one (At set).
 type cursor struct {
-	Day time.Time
+	Day *time.Time
+	At  time.Time
 	ID  uuid.UUID
 }
 
-func (c cursor) String() string { return c.Day.Format(time.DateOnly) + "_" + c.ID.String() }
+func (c cursor) String() string {
+	if c.Day == nil {
+		return "u" + strconv.FormatInt(c.At.UnixMicro(), 10) + "_" + c.ID.String()
+	}
+	return c.Day.Format(time.DateOnly) + "_" + c.ID.String()
+}
 
 func parseCursor(s string) (*cursor, error) {
-	day, id, ok := strings.Cut(s, "_")
+	key, id, ok := strings.Cut(s, "_")
 	if !ok {
 		return nil, errors.New("bad cursor")
-	}
-	d, err := time.Parse(time.DateOnly, day)
-	if err != nil {
-		return nil, err
 	}
 	u, err := uuid.Parse(id)
 	if err != nil {
 		return nil, err
 	}
-	return &cursor{Day: d, ID: u}, nil
+	if micros, ok := strings.CutPrefix(key, "u"); ok {
+		n, err := strconv.ParseInt(micros, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		return &cursor{At: time.UnixMicro(n), ID: u}, nil
+	}
+	d, err := time.Parse(time.DateOnly, key)
+	if err != nil {
+		return nil, err
+	}
+	return &cursor{Day: &d, ID: u}, nil
 }
 
+// yearGroup is one year of dated completions, or the undated "Earlier" group when Year is 0.
 type yearGroup struct {
-	Year  int32
+	Year  int
 	Items []db.ProfileCompletedRow
+}
+
+func (g yearGroup) Label() string {
+	if g.Year == 0 {
+		return "Earlier"
+	}
+	return strconv.Itoa(g.Year)
+}
+
+func rowYear(r db.ProfileCompletedRow) int {
+	if r.LastDay == nil {
+		return 0
+	}
+	return r.LastDay.Year()
+}
+
+func (c cursor) year() int {
+	if c.Day == nil {
+		return 0
+	}
+	return c.Day.Year()
 }
 
 type completed struct {
 	Years []yearGroup
-	// ContinuesYear is set when the first group continues a year shown on the previous page.
+	// ContinuesYear is set when the first group continues a group shown on the previous page.
 	ContinuesYear bool
 	Next          *cursor
 }
@@ -106,10 +142,12 @@ func loadUser(ctx context.Context, d *deps.Deps, username string, viewer db.User
 func loadCompleted(ctx context.Context, d *deps.Deps, p profileData, viewer db.User, before *cursor) (completed, error) {
 	arg := db.ProfileCompletedParams{
 		OwnerID: p.Owner.ID, ViewerID: viewer.ID, Kind: p.Kind, Lim: completedLimit + 1,
-		Tz: journal.Location(p.Owner).String(),
 	}
 	if before != nil {
-		arg.BeforeDay, arg.BeforeID = &before.Day, &before.ID
+		arg.BeforeDay, arg.BeforeID = before.Day, &before.ID
+		if before.Day == nil {
+			arg.BeforeAt = &before.At
+		}
 	}
 	rows, err := d.Q.ProfileCompleted(ctx, arg)
 	if err != nil {
@@ -119,15 +157,15 @@ func loadCompleted(ctx context.Context, d *deps.Deps, p profileData, viewer db.U
 	if len(rows) > completedLimit {
 		rows = rows[:completedLimit]
 		last := rows[len(rows)-1]
-		c.Next = &cursor{Day: last.LastDay, ID: last.PublicID}
+		c.Next = &cursor{Day: last.LastDay, At: last.LastAt, ID: last.PublicID}
 	}
 	for _, r := range rows {
-		if n := len(c.Years); n == 0 || c.Years[n-1].Year != r.Year {
-			c.Years = append(c.Years, yearGroup{Year: r.Year})
+		if n := len(c.Years); n == 0 || c.Years[n-1].Year != rowYear(r) {
+			c.Years = append(c.Years, yearGroup{Year: rowYear(r)})
 		}
 		c.Years[len(c.Years)-1].Items = append(c.Years[len(c.Years)-1].Items, r)
 	}
-	c.ContinuesYear = before != nil && len(c.Years) > 0 && int(c.Years[0].Year) == before.Day.Year()
+	c.ContinuesYear = before != nil && len(c.Years) > 0 && c.Years[0].Year == before.year()
 	return c, nil
 }
 
@@ -188,6 +226,13 @@ func progress(unit *db.ProgressUnit, cur, total *float64) string {
 		return frac + " min"
 	}
 	return frac
+}
+
+func stalledDay(s db.ProfileStalledRow) *time.Time {
+	if s.State == db.ExperienceStatePaused {
+		return &s.PausedOn
+	}
+	return s.FinishedOn
 }
 
 func count(n int64) string {
