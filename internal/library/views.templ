@@ -87,10 +87,13 @@ templ libraryBody(v libraryView, src sources) {
 			@filterSelect("genre", "Genre", v.Filter.Genre, facetOptions("Any genre", v.Facets.Genres, false))
 			@filterSelect("tag", "Tag", v.Filter.Tag, facetOptions("Any tag", v.Facets.Tags, false))
 			@filterSelect("rating", "Rating", v.Filter.Rating, ratingOptions(v.Display))
+			if gamesOnly(v.Filter.Kind) {
+				@filterSelect("length", "Length", v.Filter.Length, lengthOptions)
+			}
 			@filterDate("added_from", "Added from", dateValue(v.Filter.AddedFrom))
 			@filterDate("added_to", "Added to", dateValue(v.Filter.AddedTo))
-			@filterSelect("sort", "Sort by", v.Filter.Sort, sortOptions)
-			@filterSelect("dir", "Order", v.Filter.Query().Get("dir"), dirOptions)
+			@filterSelect("sort", "Sort by", v.Filter.Sort, sortOptionsFor(v.Filter.Kind))
+			@filterSelect("dir", "Order", v.Filter.Query().Get("dir"), dirOptions(v.Filter.Sort))
 			if q := v.Filter.Query(); q.Get("per") != "" {
 				<input type="hidden" name="per" value={ q.Get("per") }/>
 			}
@@ -100,6 +103,9 @@ templ libraryBody(v libraryView, src sources) {
 				}
 				if v.filtered() {
 					<a href={ templ.SafeURL(v.Path) } class="px-2 py-2 text-sm text-muted hover:text-fg">Clear</a>
+				}
+				if v.Filter.Kind != nil && *v.Filter.Kind == db.MediaKindGame && !v.quickWinsActive() {
+					<a href={ templ.SafeURL(v.quickWinsHref()) } class="px-2 py-2 text-sm text-accent hover:underline" title="Shortest backlog games first" data-quick-wins>Quick wins</a>
 				}
 			</div>
 		</form>
@@ -144,6 +150,9 @@ templ entryTable(v libraryView, src sources) {
 				<th>Ownership</th>
 				<th>Status</th>
 				<th>Rating</th>
+				if gamesOnly(v.Filter.Kind) {
+					<th>Length</th>
+				}
 				if len(src.Counts) > 0 {
 					<th>Achievements</th>
 				}
@@ -172,6 +181,9 @@ templ entryTable(v libraryView, src sources) {
 					<td>
 						@reviews.RatingDisplay(v.Display, e.Rating)
 					</td>
+					if gamesOnly(v.Filter.Kind) {
+						<td class="whitespace-nowrap text-muted" data-length>{ lengthText(e) }</td>
+					}
 					if len(src.Counts) > 0 {
 						<td class="whitespace-nowrap text-muted">{ achievementText(src, e.MediaItemID) }</td>
 					}
@@ -464,6 +476,9 @@ func cardSubtitle(e db.LibraryListEntriesRow, src sources) string {
 		parts = append(parts, l)
 	} else if s := entrySubtitle(e); s != "" {
 		parts = append(parts, s)
+	}
+	if l := lengthText(e); l != "" {
+		parts = append(parts, "~"+l)
 	}
 	if a := achievementText(src, e.MediaItemID); a != "" {
 		parts = append(parts, a)

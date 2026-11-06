@@ -343,6 +343,7 @@ with base as (
          coalesce(e.cover_image_id, m.cover_image_id) as cover_image_id,
          e.format as edition_format, p.slug as platform_slug, p.name as platform_name, p.short_name as platform_short_name,
          r.rating,
+         ttb.normally_minutes as length_minutes,
          x.in_progress, x.finished,
          coalesce(le.played_user, le.played_source, x.played_by_experience)::boolean as played
   from library_entries le
@@ -350,6 +351,7 @@ with base as (
   left join editions e on e.id = le.edition_id
   left join platforms p on p.id = e.platform_id
   left join reviews r on r.user_id = le.user_id and r.media_item_id = le.media_item_id
+  left join game_time_to_beat ttb on ttb.media_item_id = le.media_item_id and m.kind = 'game' and ttb.normally_minutes > 0
   cross join lateral (
     select coalesce(bool_or(ex.state in ('active', 'paused')), false)::boolean as in_progress,
            coalesce(bool_or(ex.state = 'finished'), false)::boolean as finished,
@@ -365,24 +367,26 @@ with base as (
     order by ev.id
     limit 1
   ) src on true
-  where le.user_id = $10
-    and ($11::media_kind is null or m.kind = $11::media_kind)
-    and ($12::text is null or p.slug = $12::text)
-    and ($13::edition_format is null or e.format = $13::edition_format)
-    and ($14::text is null or $14::text = any(m.genres))
-    and ($15::text is null or $15::text = any(le.tags))
-    and ($16::int is null or r.rating >= $16::int)
-    and (not $17::boolean or r.rating is null)
-    and ($18::date is null or (le.created_at at time zone $19::text)::date >= $18::date)
-    and ($20::date is null or (le.created_at at time zone $19::text)::date <= $20::date)
+  where le.user_id = $13
+    and ($14::media_kind is null or m.kind = $14::media_kind)
+    and ($15::text is null or p.slug = $15::text)
+    and ($16::edition_format is null or e.format = $16::edition_format)
+    and ($17::text is null or $17::text = any(m.genres))
+    and ($18::text is null or $18::text = any(le.tags))
+    and ($19::int is null or r.rating >= $19::int)
+    and (not $20::boolean or r.rating is null)
+    and (not $21::boolean or m.kind = 'game')
+    and ($22::date is null or (le.created_at at time zone $23::text)::date >= $22::date)
+    and ($24::date is null or (le.created_at at time zone $23::text)::date <= $24::date)
 ),
 keyed as (
-  select b.public_id, b.created_at, b.tags, b.backlog, b.media_item_id, b.ownership, b.ownership_user, b.played_user, b.ownership_source, b.played_source, b.source_provider, b.item_public_id, b.kind, b.title, b.sort_title, b.release_date, b.release_year, b.genres, b.cover_image_id, b.edition_format, b.platform_slug, b.platform_name, b.platform_short_name, b.rating, b.in_progress, b.finished, b.played,
+  select b.public_id, b.created_at, b.tags, b.backlog, b.media_item_id, b.ownership, b.ownership_user, b.played_user, b.ownership_source, b.played_source, b.source_provider, b.item_public_id, b.kind, b.title, b.sort_title, b.release_date, b.release_year, b.genres, b.cover_image_id, b.edition_format, b.platform_slug, b.platform_name, b.platform_short_name, b.rating, b.length_minutes, b.in_progress, b.finished, b.played,
          (b.backlog and not b.in_progress and not b.finished)::boolean as in_backlog,
-         (case $21::text
+         (case $25::text
             when 'added' then extract(epoch from b.created_at)::float8
-            when 'release' then coalesce(extract(epoch from coalesce(b.release_date, make_date(b.release_year::int, 1, 1)))::float8, $22::float8)
-            when 'rating' then coalesce(b.rating::float8, $22::float8)
+            when 'release' then coalesce(extract(epoch from coalesce(b.release_date, make_date(b.release_year::int, 1, 1)))::float8, $26::float8)
+            when 'rating' then coalesce(b.rating::float8, $26::float8)
+            when 'length' then coalesce(b.length_minutes::float8, $26::float8)
             else 0::float8
           end)::float8 as k_num,
          lower(b.sort_title)::text as k_text
@@ -390,7 +394,7 @@ keyed as (
 )
 select k.public_id, k.created_at, k.tags, k.ownership, k.media_item_id,
        k.ownership_user, k.played_user, k.ownership_source, k.played_source, k.source_provider, k.item_public_id, k.kind, k.title, k.release_date, k.release_year,
-       k.cover_image_id, k.edition_format, k.platform_name, k.platform_short_name, k.rating,
+       k.cover_image_id, k.edition_format, k.platform_name, k.platform_short_name, k.rating, k.length_minutes,
        k.in_progress, k.finished, k.played, k.in_backlog, k.k_num, k.k_text
 from keyed k
 where ($1::ownership is null or k.ownership = $1::ownership)
@@ -400,24 +404,30 @@ where ($1::ownership is null or k.ownership = $1::ownership)
        or ($2::text = 'backlog' and k.in_backlog)
        or ($2::text = 'played' and k.played)
        or ($2::text = 'not_played' and not k.played))
-  and (not $3::boolean
-       or (case when $4::boolean then k.k_num < $5::float8 else k.k_num > $5::float8 end)
-       or (k.k_num = $5::float8 and (case when $6::boolean
-             then (k.k_text, k.public_id) < ($7::text, $8::uuid)
-             else (k.k_text, k.public_id) > ($7::text, $8::uuid) end)))
+  and (not $3::boolean or k.length_minutes is null)
+  and ($4::int is null or k.length_minutes >= $4::int)
+  and ($5::int is null or k.length_minutes < $5::int)
+  and (not $6::boolean
+       or (case when $7::boolean then k.k_num < $8::float8 else k.k_num > $8::float8 end)
+       or (k.k_num = $8::float8 and (case when $9::boolean
+             then (k.k_text, k.public_id) < ($10::text, $11::uuid)
+             else (k.k_text, k.public_id) > ($10::text, $11::uuid) end)))
 order by
-  case when not $4::boolean then k.k_num end asc,
-  case when $4::boolean then k.k_num end desc,
-  case when not $6::boolean then k.k_text end asc,
-  case when $6::boolean then k.k_text end desc,
-  case when not $6::boolean then k.public_id end asc,
-  case when $6::boolean then k.public_id end desc
-limit $9::int
+  case when not $7::boolean then k.k_num end asc,
+  case when $7::boolean then k.k_num end desc,
+  case when not $9::boolean then k.k_text end asc,
+  case when $9::boolean then k.k_text end desc,
+  case when not $9::boolean then k.public_id end asc,
+  case when $9::boolean then k.public_id end desc
+limit $12::int
 `
 
 type LibraryListEntriesParams struct {
 	Ownership     *Ownership
 	Status        *string
+	NoLength      bool
+	LengthMin     *int32
+	LengthMax     *int32
 	HasCursor     bool
 	NumDesc       bool
 	CursorNum     float64
@@ -433,6 +443,7 @@ type LibraryListEntriesParams struct {
 	Tag           *string
 	RatingMin     *int32
 	Unrated       bool
+	LengthFilter  bool
 	AddedFrom     *time.Time
 	Tz            string
 	AddedTo       *time.Time
@@ -461,6 +472,7 @@ type LibraryListEntriesRow struct {
 	PlatformName      *string
 	PlatformShortName *string
 	Rating            *int16
+	LengthMinutes     *int32
 	InProgress        bool
 	Finished          bool
 	Played            bool
@@ -470,11 +482,14 @@ type LibraryListEntriesRow struct {
 }
 
 // Derived values follow docs/data-model.md. k_num/k_text are the keyset sort keys;
-// null_key places missing release dates and ratings last in either direction.
+// null_key places missing release dates, ratings, and lengths last in either direction.
 func (q *Queries) LibraryListEntries(ctx context.Context, arg LibraryListEntriesParams) ([]LibraryListEntriesRow, error) {
 	rows, err := q.db.Query(ctx, libraryListEntries,
 		arg.Ownership,
 		arg.Status,
+		arg.NoLength,
+		arg.LengthMin,
+		arg.LengthMax,
 		arg.HasCursor,
 		arg.NumDesc,
 		arg.CursorNum,
@@ -490,6 +505,7 @@ func (q *Queries) LibraryListEntries(ctx context.Context, arg LibraryListEntries
 		arg.Tag,
 		arg.RatingMin,
 		arg.Unrated,
+		arg.LengthFilter,
 		arg.AddedFrom,
 		arg.Tz,
 		arg.AddedTo,
@@ -524,6 +540,7 @@ func (q *Queries) LibraryListEntries(ctx context.Context, arg LibraryListEntries
 			&i.PlatformName,
 			&i.PlatformShortName,
 			&i.Rating,
+			&i.LengthMinutes,
 			&i.InProgress,
 			&i.Finished,
 			&i.Played,
