@@ -1,0 +1,8 @@
+{"game":{"gameName":"Portal 2","gameVersion":"77","availableGameStats":{
+  "achievements":[
+    {"name":"ACH_WAKE_UP","defaultvalue":0,"displayName":"Wake Up Call","hidden":0,"description":"Survive the manual override of GLaDOS' morality core.","icon":"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/620/wake.jpg","icongray":"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/620/wake_gray.jpg"},
+    {"name":"ACH_YOU_MONSTER","defaultvalue":0,"displayName":"You Monster","hidden":0,"description":"Reunite with GLaDOS.","icon":"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/620/monster.jpg","icongray":"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/620/monster_gray.jpg"},
+    {"name":"ACH_SECRET","defaultvalue":0,"displayName":"Lunacy","hidden":1,"icon":"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/620/lunacy.jpg","icongray":"https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/620/lunacy_gray.jpg"}
+  ],
+  "stats":[]
+}}}

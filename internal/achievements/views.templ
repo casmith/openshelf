@@ -1,0 +1,74 @@
+package achievements
+
+import (
+	"strconv"
+
+	"github.com/casmith/openshelf/internal/web/ui"
+)
+
+templ panel(p panelData) {
+	<div id="achievements-panel">
+		@ui.Card("") {
+			<div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+				<h2 class="text-lg font-semibold">Achievements</h2>
+				<p class="text-sm text-muted" data-testid="achievement-progress">{ strconv.Itoa(p.Unlocked) } / { strconv.Itoa(p.Total) }</p>
+			</div>
+			<div class="mb-4 h-2 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-label="Achievements unlocked" aria-valuemin="0" aria-valuemax={ strconv.Itoa(p.Total) } aria-valuenow={ strconv.Itoa(p.Unlocked) }>
+				<div class="h-full bg-accent" style={ progressWidth(p) }></div>
+			</div>
+			if len(p.Unlocks) > 0 {
+				<ul class="space-y-3" data-testid="achievements-unlocked">
+					for _, r := range p.Unlocks {
+						<li class="flex items-start gap-3">
+							@icon(r.IconURL, false)
+							<div class="min-w-0 flex-1">
+								<p class="text-sm font-medium">{ r.Name }</p>
+								if r.Description != "" {
+									<p class="text-xs text-muted">{ r.Description }</p>
+								}
+								for _, u := range r.Unlocks {
+									if l := unlockLabel(u, p.Loc, p.MultiAccount); l != "" {
+										<p class="text-xs text-muted">{ l }</p>
+									}
+								}
+							</div>
+						</li>
+					}
+				</ul>
+			} else {
+				<p class="text-sm text-muted">No achievements unlocked yet.</p>
+			}
+			if len(p.Locked) > 0 {
+				<details class="mt-4 border-t border-line pt-3">
+					<summary class="cursor-pointer text-sm text-muted">Locked ({ strconv.Itoa(len(p.Locked)) })</summary>
+					<ul class="mt-3 space-y-3" data-testid="achievements-locked">
+						for _, r := range p.Locked {
+							<li class="flex items-start gap-3">
+								if r.Hidden {
+									@icon("", true)
+									<p class="min-w-0 flex-1 text-sm font-medium text-muted">Hidden achievement</p>
+								} else {
+									@icon(r.IconURL, true)
+									<div class="min-w-0 flex-1">
+										<p class="text-sm font-medium text-muted">{ r.Name }</p>
+										if r.Description != "" {
+											<p class="text-xs text-muted">{ r.Description }</p>
+										}
+									</div>
+								}
+							</li>
+						}
+					</ul>
+				</details>
+			}
+		}
+	</div>
+}
+
+templ icon(url string, locked bool) {
+	if url != "" {
+		<img src={ url } alt="" loading="lazy" width="40" height="40" class={ "h-10 w-10 shrink-0 rounded", templ.KV("opacity-50 grayscale", locked) }/>
+	} else {
+		<div class="h-10 w-10 shrink-0 rounded bg-surface-2" aria-hidden="true"></div>
+	}
+}

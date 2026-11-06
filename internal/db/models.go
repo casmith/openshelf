@@ -1272,6 +1272,11 @@ type ShowDetail struct {
 	EpisodeCount *int32
 }
 
+type SteamOpenidNonce struct {
+	Nonce     string
+	CreatedAt time.Time
+}
+
 type SyncEvent struct {
 	ID                int64
 	RunID             int64
