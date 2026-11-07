@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/casmith/openshelf/internal/db"
@@ -165,7 +166,7 @@ func (a *Adapter) fetchAchievements(ctx context.Context, steamID, appID string) 
 		}
 		set.Achievements = append(set.Achievements, sync.Achievement{
 			Key: d.Name, Name: d.DisplayName, Description: d.Description,
-			IconURL: d.Icon, Hidden: d.Hidden != 0, Order: i,
+			IconURL: iconURL(d.Icon), Hidden: d.Hidden != 0, Order: i,
 		})
 	}
 	for _, p := range player.PlayerStats.Achievements {
@@ -187,4 +188,18 @@ func appName(app OwnedApp) string {
 		return app.Name
 	}
 	return "app " + strconv.FormatInt(app.AppID, 10)
+}
+
+const (
+	legacyIconPrefix = "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/"
+	iconPrefix       = "https://shared.fastly.steamstatic.com/community_assets/images/apps/"
+)
+
+// iconURL moves schema icons to Steam's current CDN path. GetSchemaForGame still
+// returns the legacy host, which 404s for icons uploaded or updated recently.
+func iconURL(u string) string {
+	if strings.HasPrefix(u, legacyIconPrefix) {
+		return iconPrefix + strings.TrimPrefix(u, legacyIconPrefix)
+	}
+	return u
 }
