@@ -158,7 +158,7 @@ func TestAchievementsEmitsSchemaAndUnlocks(t *testing.T) {
 		t.Fatalf("achievements %+v", s.Achievements)
 	}
 	if a0 := s.Achievements[0]; a0.Key != "ACH_WAKE_UP" || a0.Name != "Wake Up Call" || a0.Order != 0 || a0.Hidden ||
-		a0.IconURL != "https://steamcdn-a.akamaihd.net/steamcommunity/public/images/apps/620/wake.jpg" || a0.Description == "" {
+		a0.IconURL != "https://shared.fastly.steamstatic.com/community_assets/images/apps/620/wake.jpg" || a0.Description == "" {
 		t.Fatalf("first achievement %+v", a0)
 	}
 	if a2 := s.Achievements[2]; a2.Key != "ACH_SECRET" || !a2.Hidden || a2.Order != 2 {
