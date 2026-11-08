@@ -328,10 +328,27 @@ func (v libraryView) quickWinsActive() bool {
 
 func (v libraryView) filtered() bool {
 	q := v.Filter.Query()
-	for _, k := range []string{"sort", "dir", "per"} {
+	for _, k := range []string{"sort", "dir", "per", "adv"} {
 		q.Del(k)
 	}
 	return len(q) > 0
+}
+
+// activeFilters counts the filters set inside the advanced panel.
+func (v libraryView) activeFilters() int {
+	q := v.Filter.Query()
+	for _, k := range []string{"q", "sort", "dir", "per", "adv"} {
+		q.Del(k)
+	}
+	return len(q)
+}
+
+func (v libraryView) clearHref() string {
+	q := url.Values{}
+	if v.Filter.Advanced {
+		q.Set("adv", "1")
+	}
+	return withQuery(v.Path, q)
 }
 
 func entryOwnershipOptions() []ui.Option {
