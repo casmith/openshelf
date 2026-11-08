@@ -39,6 +39,11 @@ with base as (
     and (sqlc.narg(edition_format)::edition_format is null or e.format = sqlc.narg(edition_format)::edition_format)
     and (sqlc.narg(genre)::text is null or sqlc.narg(genre)::text = any(m.genres))
     and (sqlc.narg(tag)::text is null or sqlc.narg(tag)::text = any(le.tags))
+    and (sqlc.narg(search)::text is null
+         or strpos(lower(m.title), lower(sqlc.narg(search)::text)) > 0
+         or strpos(lower(coalesce(m.original_title, '')), lower(sqlc.narg(search)::text)) > 0
+         or exists(select 1 from credits cr join creators c on c.id = cr.creator_id
+                   where cr.media_item_id = m.id and strpos(lower(c.name), lower(sqlc.narg(search)::text)) > 0))
     and (sqlc.narg(rating_min)::int is null or r.rating >= sqlc.narg(rating_min)::int)
     and (not @unrated::boolean or r.rating is null)
     and (not @length_filter::boolean or m.kind = 'game')

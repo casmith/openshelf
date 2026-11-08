@@ -516,3 +516,40 @@ func TestSeedDataRenders(t *testing.T) {
 		t.Fatalf("item page: %d", res.StatusCode)
 	}
 }
+
+func TestListSearch(t *testing.T) {
+	pool := testutil.NewDB(t)
+	q := db.New(pool)
+	alice := testutil.CreateUser(t, q, "alice")
+	bob := testutil.CreateUser(t, q, "bob")
+	for _, title := range []string{"Hollow Knight", "Hades", "Dune"} {
+		kind := db.MediaKindGame
+		if title == "Dune" {
+			kind = db.MediaKindBook
+		}
+		item := testutil.CreateItem(t, pool, kind, title)
+		testutil.CreateEntry(t, pool, alice.ID, item.ID)
+		if title == "Dune" {
+			exec(t, pool, `with c as (insert into creators (name, sort_name) values ('Frank Herbert', 'Herbert, Frank') returning id)
+				insert into credits (media_item_id, creator_id, role) select $1, id, 'author' from c`, item.ID)
+		}
+	}
+	bobs := testutil.CreateItem(t, pool, db.MediaKindGame, "Holdout")
+	testutil.CreateEntry(t, pool, bob.ID, bobs.ID)
+
+	for query, want := range map[string][]string{
+		"q=hol":           {"Hollow Knight"},
+		"q=++HADES+":      {"Hades"},
+		"q=herbert":       {"Dune"},
+		"q=50%25":         nil,
+		"q=ha&sort=added": {"Hades"},
+		"q=":              {"Dune", "Hades", "Hollow Knight"},
+	} {
+		if got := list(t, q, alice, query); !slices.Equal(got, want) {
+			t.Errorf("%s: got %v, want %v", query, got, want)
+		}
+	}
+	if got := library.ParseFilter(nil, url.Values{"q": {"  a   b "}}).Query().Get("q"); got != "a b" {
+		t.Errorf("normalized query = %q", got)
+	}
+}
