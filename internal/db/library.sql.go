@@ -375,20 +375,25 @@ with base as (
     and ($16::edition_format is null or e.format = $16::edition_format)
     and ($17::text is null or $17::text = any(m.genres))
     and ($18::text is null or $18::text = any(le.tags))
-    and ($19::int is null or r.rating >= $19::int)
-    and (not $20::boolean or r.rating is null)
-    and (not $21::boolean or m.kind = 'game')
-    and ($22::date is null or (le.created_at at time zone $23::text)::date >= $22::date)
-    and ($24::date is null or (le.created_at at time zone $23::text)::date <= $24::date)
+    and ($19::text is null
+         or strpos(lower(m.title), lower($19::text)) > 0
+         or strpos(lower(coalesce(m.original_title, '')), lower($19::text)) > 0
+         or exists(select 1 from credits cr join creators c on c.id = cr.creator_id
+                   where cr.media_item_id = m.id and strpos(lower(c.name), lower($19::text)) > 0))
+    and ($20::int is null or r.rating >= $20::int)
+    and (not $21::boolean or r.rating is null)
+    and (not $22::boolean or m.kind = 'game')
+    and ($23::date is null or (le.created_at at time zone $24::text)::date >= $23::date)
+    and ($25::date is null or (le.created_at at time zone $24::text)::date <= $25::date)
 ),
 keyed as (
   select b.public_id, b.created_at, b.tags, b.backlog, b.media_item_id, b.ownership, b.ownership_user, b.played_user, b.ownership_source, b.played_source, b.source_provider, b.item_public_id, b.kind, b.title, b.sort_title, b.release_date, b.release_year, b.genres, b.cover_image_id, b.edition_format, b.platform_slug, b.platform_name, b.platform_short_name, b.rating, b.length_minutes, b.in_progress, b.finished, b.played,
          (b.backlog and not b.in_progress and not b.finished)::boolean as in_backlog,
-         (case $25::text
+         (case $26::text
             when 'added' then extract(epoch from b.created_at)::float8
-            when 'release' then coalesce(extract(epoch from coalesce(b.release_date, make_date(b.release_year::int, 1, 1)))::float8, $26::float8)
-            when 'rating' then coalesce(b.rating::float8, $26::float8)
-            when 'length' then coalesce(b.length_minutes::float8, $26::float8)
+            when 'release' then coalesce(extract(epoch from coalesce(b.release_date, make_date(b.release_year::int, 1, 1)))::float8, $27::float8)
+            when 'rating' then coalesce(b.rating::float8, $27::float8)
+            when 'length' then coalesce(b.length_minutes::float8, $27::float8)
             else 0::float8
           end)::float8 as k_num,
          lower(b.sort_title)::text as k_text
@@ -443,6 +448,7 @@ type LibraryListEntriesParams struct {
 	EditionFormat *EditionFormat
 	Genre         *string
 	Tag           *string
+	Search        *string
 	RatingMin     *int32
 	Unrated       bool
 	LengthFilter  bool
@@ -505,6 +511,7 @@ func (q *Queries) LibraryListEntries(ctx context.Context, arg LibraryListEntries
 		arg.EditionFormat,
 		arg.Genre,
 		arg.Tag,
+		arg.Search,
 		arg.RatingMin,
 		arg.Unrated,
 		arg.LengthFilter,

@@ -26,6 +26,7 @@ const (
 	maxTags        = 20
 	maxTagLen      = 40
 	maxNotesLen    = 5000
+	maxSearchLen   = 100
 )
 
 var ErrDuplicate = errors.New("library: entry already exists")
@@ -52,6 +53,7 @@ func defaultDesc(sort string) bool { return sort != "title" && sort != "length" 
 // Filter is the library page state. It round-trips through the query string.
 type Filter struct {
 	Kind      *db.MediaKind
+	Search    string
 	Ownership *db.Ownership
 	Status    string
 	Platform  string
@@ -74,6 +76,10 @@ type Filter struct {
 func ParseFilter(kind *db.MediaKind, v url.Values) Filter {
 	f := Filter{Kind: kind, Sort: "title", Per: defaultPerPage}
 	get := func(k string) string { return strings.TrimSpace(v.Get(k)) }
+	f.Search = strings.Join(strings.Fields(get("q")), " ")
+	if r := []rune(f.Search); len(r) > maxSearchLen {
+		f.Search = string(r[:maxSearchLen])
+	}
 	if o := db.Ownership(get("ownership")); o.Valid() {
 		f.Ownership = &o
 	}
@@ -128,6 +134,7 @@ func (f Filter) Query() url.Values {
 			v.Set(k, val)
 		}
 	}
+	set("q", f.Search)
 	if f.Ownership != nil {
 		set("ownership", string(*f.Ownership))
 	}
@@ -214,7 +221,7 @@ func List(ctx context.Context, q *db.Queries, viewer db.User, f Filter) (Page, e
 		}
 		return &s
 	}
-	p.Status, p.Platform, p.Genre, p.Tag = opt(f.Status), opt(f.Platform), opt(f.Genre), opt(f.Tag)
+	p.Status, p.Platform, p.Genre, p.Tag, p.Search = opt(f.Status), opt(f.Platform), opt(f.Genre), opt(f.Tag), opt(f.Search)
 	switch f.Rating {
 	case "":
 	case "rated":

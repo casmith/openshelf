@@ -72,12 +72,18 @@ templ libraryBody(v libraryView, src sources) {
 			method="get"
 			action={ templ.SafeURL(v.Path) }
 			hx-get={ v.Path }
-			hx-trigger="change, submit"
+			hx-trigger="change, submit, input changed delay:300ms from:#lib-filter-q, search from:#lib-filter-q"
 			hx-target="#library"
 			hx-swap="outerHTML"
 			hx-push-url="true"
+			hx-sync="this:replace"
 			class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
 		>
+			<div class="relative col-span-full">
+				<label for="lib-filter-q" class="sr-only">Search</label>
+				@ui.Icon("search", "pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted")
+				<input type="search" id="lib-filter-q" name="q" value={ v.Filter.Search } placeholder={ searchPlaceholder(v.Filter.Kind) } autocomplete="off" maxlength="100" class={ compactInput, "pl-8" }/>
+			</div>
 			@filterSelect("ownership", "Ownership", ownershipValue(v.Filter.Ownership), filterOwnershipOptions())
 			@filterSelect("status", "Status", v.Filter.Status, statusOptionsFor(v.Filter.Kind))
 			if v.Filter.Kind == nil || *v.Filter.Kind == db.MediaKindGame || len(v.Facets.Platforms) > 0 {

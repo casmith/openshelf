@@ -350,3 +350,13 @@ func entryFormValues(e db.LibraryGetEntryForEditRow) *form.Form {
 	f.Values.Set("visibility", string(e.Visibility))
 	return f
 }
+
+func searchPlaceholder(k *db.MediaKind) string {
+	switch {
+	case k == nil:
+		return "Search your library"
+	case *k == db.MediaKindGame:
+		return "Search games"
+	}
+	return "Search " + strings.ToLower(kindPlural(*k)) + " by title or creator"
+}
