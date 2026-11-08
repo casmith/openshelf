@@ -54,6 +54,7 @@ func defaultDesc(sort string) bool { return sort != "title" && sort != "length" 
 type Filter struct {
 	Kind      *db.MediaKind
 	Search    string
+	Advanced  bool // filter panel expanded
 	Ownership *db.Ownership
 	Status    string
 	Platform  string
@@ -76,6 +77,7 @@ type Filter struct {
 func ParseFilter(kind *db.MediaKind, v url.Values) Filter {
 	f := Filter{Kind: kind, Sort: "title", Per: defaultPerPage}
 	get := func(k string) string { return strings.TrimSpace(v.Get(k)) }
+	f.Advanced = get("adv") == "1"
 	f.Search = strings.Join(strings.Fields(get("q")), " ")
 	if r := []rune(f.Search); len(r) > maxSearchLen {
 		f.Search = string(r[:maxSearchLen])
@@ -135,6 +137,9 @@ func (f Filter) Query() url.Values {
 		}
 	}
 	set("q", f.Search)
+	if f.Advanced {
+		set("adv", "1")
+	}
 	if f.Ownership != nil {
 		set("ownership", string(*f.Ownership))
 	}

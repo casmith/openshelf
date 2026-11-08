@@ -77,6 +77,7 @@ func index(w http.ResponseWriter, r *http.Request, d *deps.Deps, viewer db.User)
 	}
 	v := libraryView{Path: r.URL.Path, Filter: f, Page: page, Facets: facets, Display: viewer.RatingDisplay}
 	if web.IsPartial(r) {
+		w.Header().Set("HX-Push-Url", withQuery(r.URL.Path, f.Query()))
 		web.Render(w, r, http.StatusOK, libraryBody(v, src))
 		return
 	}

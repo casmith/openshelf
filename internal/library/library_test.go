@@ -365,6 +365,18 @@ func TestKindPagesAndPartial(t *testing.T) {
 	if res.StatusCode != http.StatusOK || strings.Contains(res.Body, "<html") || !strings.Contains(res.Body, `id="library"`) {
 		t.Fatalf("partial should render only the library body: %d", res.StatusCode)
 	}
+	req, _ = http.NewRequest(http.MethodGet, s.URL+"/library/game?q=ha&adv=1&status=&genre=&sort=title", nil)
+	req.Header.Set("HX-Request", "true")
+	res = c.Do(req)
+	if got := res.Header.Get("HX-Push-Url"); got != "/library/game?adv=1&q=ha" {
+		t.Errorf("HX-Push-Url = %q", got)
+	}
+	if !regexp.MustCompile(`<form[^>]*hx-target="#library"[^>]*hx-disinherit="\*"`).MatchString(res.Body) {
+		t.Error("filter form must not pass its htmx target to the boosted links inside it")
+	}
+	if !regexp.MustCompile(`id="lib-filter-adv"[^>]*checked`).MatchString(res.Body) {
+		t.Error("adv=1 should keep the advanced panel open")
+	}
 }
 
 func TestUpdatePlayedAndRemove(t *testing.T) {
