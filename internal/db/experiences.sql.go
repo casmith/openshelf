@@ -13,7 +13,10 @@ import (
 )
 
 const experiencesActiveForItems = `-- name: ExperiencesActiveForItems :many
-select distinct on (e.media_item_id) e.id, e.public_id, e.user_id, e.media_item_id, e.edition_id, e.state, e.started_on, e.finished_on, e.progress_unit, e.progress_current, e.progress_total, e.notes, e.visibility, e.created_at, e.updated_at, coalesce(pt.minutes, 0)::int as synced_minutes, coalesce(pt.provider, '')::text as synced_provider
+select distinct on (e.media_item_id) e.id, e.public_id, e.user_id, e.media_item_id, e.edition_id, e.state, e.started_on, e.finished_on, e.progress_unit, e.progress_current, e.progress_total, e.notes, e.visibility, e.created_at, e.updated_at,
+       coalesce(pt.minutes, 0)::int as playtime_minutes, coalesce(pt.provider, '')::text as playtime_provider,
+       coalesce(pr.fraction, 0)::float8 as progress_fraction, coalesce(pr.finished, false)::bool as progress_finished,
+       coalesce(pr.provider, '')::text as progress_provider
 from experiences e
 left join lateral (
   select sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
@@ -21,6 +24,12 @@ left join lateral (
   join connected_accounts a on a.id = ep.account_id
   where a.user_id = e.user_id and ep.media_item_id = e.media_item_id
 ) pt on true
+left join lateral (
+  select max(xp.fraction)::float8 as fraction, bool_or(xp.finished)::bool as finished, min(a.provider)::text as provider
+  from external_progress xp
+  join connected_accounts a on a.id = xp.account_id
+  where a.user_id = e.user_id and xp.media_item_id = e.media_item_id
+) pr on true
 where e.user_id = $1 and e.media_item_id = any($2::bigint[]) and e.state = 'active'
 order by e.media_item_id, e.started_on desc nulls last, e.id desc
 `
@@ -31,12 +40,15 @@ type ExperiencesActiveForItemsParams struct {
 }
 
 type ExperiencesActiveForItemsRow struct {
-	Experience     Experience
-	SyncedMinutes  int32
-	SyncedProvider string
+	Experience       Experience
+	PlaytimeMinutes  int32
+	PlaytimeProvider string
+	ProgressFraction float64
+	ProgressFinished bool
+	ProgressProvider string
 }
 
-// synced_provider is empty when no linked account reports playtime for the item.
+// Providers are empty when no linked account reports playtime or progress for the item.
 func (q *Queries) ExperiencesActiveForItems(ctx context.Context, arg ExperiencesActiveForItemsParams) ([]ExperiencesActiveForItemsRow, error) {
 	rows, err := q.db.Query(ctx, experiencesActiveForItems, arg.UserID, arg.MediaItemIds)
 	if err != nil {
@@ -62,8 +74,11 @@ func (q *Queries) ExperiencesActiveForItems(ctx context.Context, arg Experiences
 			&i.Experience.Visibility,
 			&i.Experience.CreatedAt,
 			&i.Experience.UpdatedAt,
-			&i.SyncedMinutes,
-			&i.SyncedProvider,
+			&i.PlaytimeMinutes,
+			&i.PlaytimeProvider,
+			&i.ProgressFraction,
+			&i.ProgressFinished,
+			&i.ProgressProvider,
 		); err != nil {
 			return nil, err
 		}
@@ -377,35 +392,57 @@ func (q *Queries) ExperiencesShowEpisodeCount(ctx context.Context, mediaItemID i
 	return episode_count, err
 }
 
-const experiencesSyncedPlaytime = `-- name: ExperiencesSyncedPlaytime :many
-select ep.media_item_id, sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
-from external_playtime ep
-join connected_accounts a on a.id = ep.account_id
-where a.user_id = $1 and ep.media_item_id = any($2::bigint[])
-group by ep.media_item_id
+const experiencesSynced = `-- name: ExperiencesSynced :many
+select i.id::bigint as media_item_id,
+       coalesce(pt.minutes, 0)::int as playtime_minutes, coalesce(pt.provider, '')::text as playtime_provider,
+       coalesce(pr.fraction, 0)::float8 as progress_fraction, coalesce(pr.finished, false)::bool as progress_finished,
+       coalesce(pr.provider, '')::text as progress_provider
+from unnest($1::bigint[]) as i(id)
+left join lateral (
+  select sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
+  from external_playtime ep
+  join connected_accounts a on a.id = ep.account_id
+  where a.user_id = $2 and ep.media_item_id = i.id
+) pt on true
+left join lateral (
+  select max(xp.fraction)::float8 as fraction, bool_or(xp.finished)::bool as finished, min(a.provider)::text as provider
+  from external_progress xp
+  join connected_accounts a on a.id = xp.account_id
+  where a.user_id = $2 and xp.media_item_id = i.id
+) pr on true
 `
 
-type ExperiencesSyncedPlaytimeParams struct {
-	UserID       int64
+type ExperiencesSyncedParams struct {
 	MediaItemIds []int64
+	UserID       int64
 }
 
-type ExperiencesSyncedPlaytimeRow struct {
-	MediaItemID int64
-	Minutes     int32
-	Provider    string
+type ExperiencesSyncedRow struct {
+	MediaItemID      int64
+	PlaytimeMinutes  int32
+	PlaytimeProvider string
+	ProgressFraction float64
+	ProgressFinished bool
+	ProgressProvider string
 }
 
-func (q *Queries) ExperiencesSyncedPlaytime(ctx context.Context, arg ExperiencesSyncedPlaytimeParams) ([]ExperiencesSyncedPlaytimeRow, error) {
-	rows, err := q.db.Query(ctx, experiencesSyncedPlaytime, arg.UserID, arg.MediaItemIds)
+func (q *Queries) ExperiencesSynced(ctx context.Context, arg ExperiencesSyncedParams) ([]ExperiencesSyncedRow, error) {
+	rows, err := q.db.Query(ctx, experiencesSynced, arg.MediaItemIds, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ExperiencesSyncedPlaytimeRow{}
+	items := []ExperiencesSyncedRow{}
 	for rows.Next() {
-		var i ExperiencesSyncedPlaytimeRow
-		if err := rows.Scan(&i.MediaItemID, &i.Minutes, &i.Provider); err != nil {
+		var i ExperiencesSyncedRow
+		if err := rows.Scan(
+			&i.MediaItemID,
+			&i.PlaytimeMinutes,
+			&i.PlaytimeProvider,
+			&i.ProgressFraction,
+			&i.ProgressFinished,
+			&i.ProgressProvider,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

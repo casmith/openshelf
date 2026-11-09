@@ -602,11 +602,11 @@ func TestSyncedPlaytimeReplacesManualHours(t *testing.T) {
 	if strings.Contains(page, `id="f-progress-`+e.PublicID.String()) {
 		t.Error("synced game should not offer manual hours entry")
 	}
-	if !regexp.MustCompile(`data-testid="synced-playtime"[^>]*>5 h played on (Steam|steam)<`).MatchString(page) {
+	if !regexp.MustCompile(`data-testid="synced-progress"[^>]*>5 h played on (Steam|steam)<`).MatchString(page) {
 		t.Error("synced game should show its Steam playtime in the history panel")
 	}
 	dash := c.Get("/").Body
-	if !regexp.MustCompile(`data-testid="synced-playtime"[^>]*>5 h played on (Steam|steam)<`).MatchString(dash) ||
+	if !regexp.MustCompile(`data-testid="synced-progress"[^>]*>5 h played on (Steam|steam)<`).MatchString(dash) ||
 		strings.Contains(dash, `id="f-quick-`+e.PublicID.String()) {
 		t.Error("dashboard quick log should show synced playtime instead of an hours input")
 	}
@@ -616,5 +616,40 @@ func TestSyncedPlaytimeReplacesManualHours(t *testing.T) {
 	}
 	if page := c.Get(itemURL(manual)).Body; !strings.Contains(page, `id="f-progress-`+e.PublicID.String()) {
 		t.Error("unsynced game should keep manual hours entry")
+	}
+}
+
+func TestSyncedListeningReplacesManualPages(t *testing.T) {
+	s := testutil.NewServer(t)
+	u := testutil.CreateUser(t, s.Q, "alice")
+	synced := testutil.CreateItem(t, s.Pool, db.MediaKindBook, "Dune")
+	finished := testutil.CreateItem(t, s.Pool, db.MediaKindBook, "Emma")
+	manual := testutil.CreateItem(t, s.Pool, db.MediaKindBook, "Middlemarch")
+	acct := testutil.CreateConnectedAccount(t, s.Pool, u.ID, "audiobookshelf", "abs-user")
+	exec(t, s, `insert into external_progress (account_id, media_item_id, provider_item_key, fraction) values ($1, $2, 'li_1', 0.416)`, acct.ID, synced.ID)
+	exec(t, s, `insert into external_progress (account_id, media_item_id, provider_item_key, fraction, finished) values ($1, $2, 'li_2', 1, true)`, acct.ID, finished.ID)
+	c := s.LoginAs(t, u)
+
+	for _, tc := range []struct {
+		item db.MediaItem
+		want string
+	}{{synced, "42% on"}, {finished, "Finished on"}, {manual, ""}} {
+		item, want := tc.item, tc.want
+		wantStatus(t, c.PostForm(itemURL(item)+"/experiences", nil), http.StatusSeeOther)
+		e := experiencesOf(t, s, u, item)[0]
+		page := c.Get(itemURL(item)).Body
+		hasInput := strings.Contains(page, `id="f-progress-`+e.PublicID.String())
+		if want == "" {
+			if !hasInput {
+				t.Errorf("%s: unsynced book should keep manual pages entry", item.Title)
+			}
+			continue
+		}
+		if hasInput {
+			t.Errorf("%s: synced book should not offer manual pages entry", item.Title)
+		}
+		if !regexp.MustCompile(`data-testid="synced-progress"[^>]*>` + want + ` (Audiobookshelf|audiobookshelf)<`).MatchString(page) {
+			t.Errorf("%s: want %q from Audiobookshelf in the history panel", item.Title, want)
+		}
 	}
 }
