@@ -3,16 +3,18 @@ select * from experiences
 where user_id = @user_id and media_item_id = @media_item_id
 order by coalesce(started_on, finished_on) desc nulls last, id desc;
 
--- name: ExperiencesActiveForItem :one
-select * from experiences
-where user_id = @user_id and media_item_id = @media_item_id and state = 'active'
-order by started_on desc nulls last, id desc
-limit 1;
-
 -- name: ExperiencesActiveForItems :many
-select distinct on (media_item_id) * from experiences
-where user_id = @user_id and media_item_id = any(@media_item_ids::bigint[]) and state = 'active'
-order by media_item_id, started_on desc nulls last, id desc;
+-- synced_provider is empty when no linked account reports playtime for the item.
+select distinct on (e.media_item_id) sqlc.embed(e), coalesce(pt.minutes, 0)::int as synced_minutes, coalesce(pt.provider, '')::text as synced_provider
+from experiences e
+left join lateral (
+  select sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
+  from external_playtime ep
+  join connected_accounts a on a.id = ep.account_id
+  where a.user_id = e.user_id and ep.media_item_id = e.media_item_id
+) pt on true
+where e.user_id = @user_id and e.media_item_id = any(@media_item_ids::bigint[]) and e.state = 'active'
+order by e.media_item_id, e.started_on desc nulls last, e.id desc;
 
 -- name: ExperiencesGetForUpdate :one
 select * from experiences

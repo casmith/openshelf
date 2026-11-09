@@ -605,7 +605,15 @@ func TestSyncedPlaytimeReplacesManualHours(t *testing.T) {
 	if !regexp.MustCompile(`data-testid="synced-playtime"[^>]*>5 h played on (Steam|steam)<`).MatchString(page) {
 		t.Error("synced game should show its Steam playtime in the history panel")
 	}
+	dash := c.Get("/").Body
+	if !regexp.MustCompile(`data-testid="synced-playtime"[^>]*>5 h played on (Steam|steam)<`).MatchString(dash) ||
+		strings.Contains(dash, `id="f-quick-`+e.PublicID.String()) {
+		t.Error("dashboard quick log should show synced playtime instead of an hours input")
+	}
 	e = experiencesOf(t, s, u, manual)[0]
+	if !strings.Contains(dash, `id="f-quick-`+e.PublicID.String()) {
+		t.Error("dashboard quick log should keep manual hours for unsynced games")
+	}
 	if page := c.Get(itemURL(manual)).Body; !strings.Contains(page, `id="f-progress-`+e.PublicID.String()) {
 		t.Error("unsynced game should keep manual hours entry")
 	}

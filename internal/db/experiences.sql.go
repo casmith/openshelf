@@ -12,45 +12,17 @@ import (
 	"github.com/google/uuid"
 )
 
-const experiencesActiveForItem = `-- name: ExperiencesActiveForItem :one
-select id, public_id, user_id, media_item_id, edition_id, state, started_on, finished_on, progress_unit, progress_current, progress_total, notes, visibility, created_at, updated_at from experiences
-where user_id = $1 and media_item_id = $2 and state = 'active'
-order by started_on desc nulls last, id desc
-limit 1
-`
-
-type ExperiencesActiveForItemParams struct {
-	UserID      int64
-	MediaItemID int64
-}
-
-func (q *Queries) ExperiencesActiveForItem(ctx context.Context, arg ExperiencesActiveForItemParams) (Experience, error) {
-	row := q.db.QueryRow(ctx, experiencesActiveForItem, arg.UserID, arg.MediaItemID)
-	var i Experience
-	err := row.Scan(
-		&i.ID,
-		&i.PublicID,
-		&i.UserID,
-		&i.MediaItemID,
-		&i.EditionID,
-		&i.State,
-		&i.StartedOn,
-		&i.FinishedOn,
-		&i.ProgressUnit,
-		&i.ProgressCurrent,
-		&i.ProgressTotal,
-		&i.Notes,
-		&i.Visibility,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const experiencesActiveForItems = `-- name: ExperiencesActiveForItems :many
-select distinct on (media_item_id) id, public_id, user_id, media_item_id, edition_id, state, started_on, finished_on, progress_unit, progress_current, progress_total, notes, visibility, created_at, updated_at from experiences
-where user_id = $1 and media_item_id = any($2::bigint[]) and state = 'active'
-order by media_item_id, started_on desc nulls last, id desc
+select distinct on (e.media_item_id) e.id, e.public_id, e.user_id, e.media_item_id, e.edition_id, e.state, e.started_on, e.finished_on, e.progress_unit, e.progress_current, e.progress_total, e.notes, e.visibility, e.created_at, e.updated_at, coalesce(pt.minutes, 0)::int as synced_minutes, coalesce(pt.provider, '')::text as synced_provider
+from experiences e
+left join lateral (
+  select sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
+  from external_playtime ep
+  join connected_accounts a on a.id = ep.account_id
+  where a.user_id = e.user_id and ep.media_item_id = e.media_item_id
+) pt on true
+where e.user_id = $1 and e.media_item_id = any($2::bigint[]) and e.state = 'active'
+order by e.media_item_id, e.started_on desc nulls last, e.id desc
 `
 
 type ExperiencesActiveForItemsParams struct {
@@ -58,31 +30,40 @@ type ExperiencesActiveForItemsParams struct {
 	MediaItemIds []int64
 }
 
-func (q *Queries) ExperiencesActiveForItems(ctx context.Context, arg ExperiencesActiveForItemsParams) ([]Experience, error) {
+type ExperiencesActiveForItemsRow struct {
+	Experience     Experience
+	SyncedMinutes  int32
+	SyncedProvider string
+}
+
+// synced_provider is empty when no linked account reports playtime for the item.
+func (q *Queries) ExperiencesActiveForItems(ctx context.Context, arg ExperiencesActiveForItemsParams) ([]ExperiencesActiveForItemsRow, error) {
 	rows, err := q.db.Query(ctx, experiencesActiveForItems, arg.UserID, arg.MediaItemIds)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Experience{}
+	items := []ExperiencesActiveForItemsRow{}
 	for rows.Next() {
-		var i Experience
+		var i ExperiencesActiveForItemsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.PublicID,
-			&i.UserID,
-			&i.MediaItemID,
-			&i.EditionID,
-			&i.State,
-			&i.StartedOn,
-			&i.FinishedOn,
-			&i.ProgressUnit,
-			&i.ProgressCurrent,
-			&i.ProgressTotal,
-			&i.Notes,
-			&i.Visibility,
-			&i.CreatedAt,
-			&i.UpdatedAt,
+			&i.Experience.ID,
+			&i.Experience.PublicID,
+			&i.Experience.UserID,
+			&i.Experience.MediaItemID,
+			&i.Experience.EditionID,
+			&i.Experience.State,
+			&i.Experience.StartedOn,
+			&i.Experience.FinishedOn,
+			&i.Experience.ProgressUnit,
+			&i.Experience.ProgressCurrent,
+			&i.Experience.ProgressTotal,
+			&i.Experience.Notes,
+			&i.Experience.Visibility,
+			&i.Experience.CreatedAt,
+			&i.Experience.UpdatedAt,
+			&i.SyncedMinutes,
+			&i.SyncedProvider,
 		); err != nil {
 			return nil, err
 		}
