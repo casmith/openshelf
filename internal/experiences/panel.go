@@ -2,13 +2,11 @@ package experiences
 
 import (
 	"context"
-	"errors"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/a-h/templ"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/casmith/openshelf/internal/achievements"
 	"github.com/casmith/openshelf/internal/db"
@@ -17,11 +15,53 @@ import (
 )
 
 type panelData struct {
-	Item  db.MediaItem
-	Exps  []db.Experience
-	Today string
-	Error string
-	Hint  *achievements.FinishHint // prefills "Log as finished"
+	Item   db.MediaItem
+	Exps   []db.Experience
+	Today  string
+	Error  string
+	Hint   *achievements.FinishHint // prefills "Log as finished"
+	Synced *syncedTime
+}
+
+// syncedTime is playtime a linked account reports; it replaces manual hours entry.
+type syncedTime struct {
+	Minutes int32
+	Source  string
+}
+
+func loadSynced(ctx context.Context, d *deps.Deps, viewer db.User, ids []int64) (map[int64]*syncedTime, error) {
+	rows, err := d.Q.ExperiencesSyncedPlaytime(ctx, db.ExperiencesSyncedPlaytimeParams{UserID: viewer.ID, MediaItemIds: ids})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]*syncedTime, len(rows))
+	for _, r := range rows {
+		out[r.MediaItemID] = &syncedTime{Minutes: r.Minutes, Source: sourceName(d, r.Provider)}
+	}
+	return out, nil
+}
+
+func sourceName(d *deps.Deps, provider string) string {
+	if a, ok := d.SyncAdapters.Get(provider); ok {
+		return a.Capabilities().DisplayName
+	}
+	return provider
+}
+
+// usesSynced reports whether e's hours come from a linked account instead of manual entry.
+func usesSynced(e db.Experience, s *syncedTime) bool {
+	return s != nil && e.ProgressUnit != nil && *e.ProgressUnit == db.ProgressUnitHours
+}
+
+func manualProgress(e db.Experience, s *syncedTime) bool {
+	return e.ProgressUnit != nil && !usesSynced(e, s)
+}
+
+func syncedText(s *syncedTime) string {
+	if s.Minutes == 0 {
+		return "Not played yet on " + s.Source
+	}
+	return ui.Hours(s.Minutes) + " played on " + s.Source
 }
 
 // ItemPanel renders the viewer's experiences of item for the item detail page.
@@ -36,6 +76,11 @@ func loadPanel(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaI
 	}
 	today := Today(d.Now(), viewer.Timezone)
 	p := panelData{Item: item, Exps: exps, Today: today.Format(time.DateOnly), Error: errMsg}
+	synced, err := loadSynced(ctx, d, viewer, []int64{item.ID})
+	if err != nil {
+		return nil, err
+	}
+	p.Synced = synced[item.ID]
 	if _, busy := InProgress(exps); !busy {
 		if p.Hint, err = achievements.SuggestedFinishDate(ctx, d, viewer, item); err != nil {
 			return nil, err
@@ -49,14 +94,11 @@ func loadPanel(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaI
 
 // QuickLog renders an inline progress/finish control for dashboard cards (used by S06).
 func QuickLog(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaItem) (templ.Component, error) {
-	e, err := d.Q.ExperiencesActiveForItem(ctx, db.ExperiencesActiveForItemParams{UserID: viewer.ID, MediaItemID: item.ID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return templ.NopComponent, nil
-	}
+	m, err := QuickLogs(ctx, d, viewer, []db.MediaItem{item})
 	if err != nil {
 		return nil, err
 	}
-	return quickLog(item, e), nil
+	return m[item.ID], nil
 }
 
 // QuickLogs is QuickLog for many items in one query, keyed by media item ID.
@@ -71,8 +113,12 @@ func QuickLogs(ctx context.Context, d *deps.Deps, viewer db.User, items []db.Med
 	if err != nil {
 		return nil, err
 	}
-	for _, e := range es {
-		out[e.MediaItemID] = quickLog(byID[e.MediaItemID], e)
+	for _, r := range es {
+		var st *syncedTime
+		if r.SyncedProvider != "" {
+			st = &syncedTime{Minutes: r.SyncedMinutes, Source: sourceName(d, r.SyncedProvider)}
+		}
+		out[r.Experience.MediaItemID] = quickLog(byID[r.Experience.MediaItemID], r.Experience, st)
 	}
 	return out, nil
 }
