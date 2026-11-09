@@ -4,8 +4,11 @@ where user_id = @user_id and media_item_id = @media_item_id
 order by coalesce(started_on, finished_on) desc nulls last, id desc;
 
 -- name: ExperiencesActiveForItems :many
--- synced_provider is empty when no linked account reports playtime for the item.
-select distinct on (e.media_item_id) sqlc.embed(e), coalesce(pt.minutes, 0)::int as synced_minutes, coalesce(pt.provider, '')::text as synced_provider
+-- Providers are empty when no linked account reports playtime or progress for the item.
+select distinct on (e.media_item_id) sqlc.embed(e),
+       coalesce(pt.minutes, 0)::int as playtime_minutes, coalesce(pt.provider, '')::text as playtime_provider,
+       coalesce(pr.fraction, 0)::float8 as progress_fraction, coalesce(pr.finished, false)::bool as progress_finished,
+       coalesce(pr.provider, '')::text as progress_provider
 from experiences e
 left join lateral (
   select sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
@@ -13,6 +16,12 @@ left join lateral (
   join connected_accounts a on a.id = ep.account_id
   where a.user_id = e.user_id and ep.media_item_id = e.media_item_id
 ) pt on true
+left join lateral (
+  select max(xp.fraction)::float8 as fraction, bool_or(xp.finished)::bool as finished, min(a.provider)::text as provider
+  from external_progress xp
+  join connected_accounts a on a.id = xp.account_id
+  where a.user_id = e.user_id and xp.media_item_id = e.media_item_id
+) pr on true
 where e.user_id = @user_id and e.media_item_id = any(@media_item_ids::bigint[]) and e.state = 'active'
 order by e.media_item_id, e.started_on desc nulls last, e.id desc;
 
@@ -85,9 +94,21 @@ select exists (
   where user_id = @user_id and experience_id = @experience_id and verb = @verb
 )::bool;
 
--- name: ExperiencesSyncedPlaytime :many
-select ep.media_item_id, sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
-from external_playtime ep
-join connected_accounts a on a.id = ep.account_id
-where a.user_id = @user_id and ep.media_item_id = any(@media_item_ids::bigint[])
-group by ep.media_item_id;
+-- name: ExperiencesSynced :many
+select i.id::bigint as media_item_id,
+       coalesce(pt.minutes, 0)::int as playtime_minutes, coalesce(pt.provider, '')::text as playtime_provider,
+       coalesce(pr.fraction, 0)::float8 as progress_fraction, coalesce(pr.finished, false)::bool as progress_finished,
+       coalesce(pr.provider, '')::text as progress_provider
+from unnest(@media_item_ids::bigint[]) as i(id)
+left join lateral (
+  select sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
+  from external_playtime ep
+  join connected_accounts a on a.id = ep.account_id
+  where a.user_id = @user_id and ep.media_item_id = i.id
+) pt on true
+left join lateral (
+  select max(xp.fraction)::float8 as fraction, bool_or(xp.finished)::bool as finished, min(a.provider)::text as provider
+  from external_progress xp
+  join connected_accounts a on a.id = xp.account_id
+  where a.user_id = @user_id and xp.media_item_id = i.id
+) pr on true;

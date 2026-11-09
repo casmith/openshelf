@@ -2,6 +2,7 @@ package experiences
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -20,25 +21,36 @@ type panelData struct {
 	Today  string
 	Error  string
 	Hint   *achievements.FinishHint // prefills "Log as finished"
-	Synced *syncedTime
+	Synced *synced
 }
 
-// syncedTime is playtime a linked account reports; it replaces manual hours entry.
-type syncedTime struct {
-	Minutes int32
-	Source  string
+// synced is what linked accounts report for an item: Steam playtime or
+// Audiobookshelf progress. It replaces manual progress entry.
+type synced struct {
+	Source   string
+	Progress bool // fraction-based progress; otherwise playtime minutes
+	Minutes  int32
+	Fraction float64
+	Finished bool
 }
 
-func loadSynced(ctx context.Context, d *deps.Deps, viewer db.User, ids []int64) (map[int64]*syncedTime, error) {
-	rows, err := d.Q.ExperiencesSyncedPlaytime(ctx, db.ExperiencesSyncedPlaytimeParams{UserID: viewer.ID, MediaItemIds: ids})
-	if err != nil {
+func newSynced(d *deps.Deps, minutes int32, ptProvider string, fraction float64, finished bool, prProvider string) *synced {
+	switch {
+	case prProvider != "":
+		return &synced{Source: sourceName(d, prProvider), Progress: true, Fraction: min(max(fraction, 0), 1), Finished: finished}
+	case ptProvider != "":
+		return &synced{Source: sourceName(d, ptProvider), Minutes: minutes}
+	}
+	return nil
+}
+
+func loadSynced(ctx context.Context, d *deps.Deps, viewer db.User, itemID int64) (*synced, error) {
+	rows, err := d.Q.ExperiencesSynced(ctx, db.ExperiencesSyncedParams{UserID: viewer.ID, MediaItemIds: []int64{itemID}})
+	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	out := make(map[int64]*syncedTime, len(rows))
-	for _, r := range rows {
-		out[r.MediaItemID] = &syncedTime{Minutes: r.Minutes, Source: sourceName(d, r.Provider)}
-	}
-	return out, nil
+	r := rows[0]
+	return newSynced(d, r.PlaytimeMinutes, r.PlaytimeProvider, r.ProgressFraction, r.ProgressFinished, r.ProgressProvider), nil
 }
 
 func sourceName(d *deps.Deps, provider string) string {
@@ -48,17 +60,25 @@ func sourceName(d *deps.Deps, provider string) string {
 	return provider
 }
 
-// usesSynced reports whether e's hours come from a linked account instead of manual entry.
-func usesSynced(e db.Experience, s *syncedTime) bool {
-	return s != nil && e.ProgressUnit != nil && *e.ProgressUnit == db.ProgressUnitHours
+// usesSynced reports whether e's progress comes from a linked account instead of manual entry.
+// Playtime only stands in for hours; fraction progress stands in for any unit.
+func usesSynced(e db.Experience, s *synced) bool {
+	return s != nil && e.ProgressUnit != nil && (s.Progress || *e.ProgressUnit == db.ProgressUnitHours)
 }
 
-func manualProgress(e db.Experience, s *syncedTime) bool {
+func manualProgress(e db.Experience, s *synced) bool {
 	return e.ProgressUnit != nil && !usesSynced(e, s)
 }
 
-func syncedText(s *syncedTime) string {
-	if s.Minutes == 0 {
+func syncedText(s *synced) string {
+	switch {
+	case s.Progress && s.Finished:
+		return "Finished on " + s.Source
+	case s.Progress && s.Fraction == 0:
+		return "Not started on " + s.Source
+	case s.Progress:
+		return strconv.Itoa(max(int(math.Round(s.Fraction*100)), 1)) + "% on " + s.Source
+	case s.Minutes == 0:
 		return "Not played yet on " + s.Source
 	}
 	return ui.Hours(s.Minutes) + " played on " + s.Source
@@ -76,11 +96,9 @@ func loadPanel(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaI
 	}
 	today := Today(d.Now(), viewer.Timezone)
 	p := panelData{Item: item, Exps: exps, Today: today.Format(time.DateOnly), Error: errMsg}
-	synced, err := loadSynced(ctx, d, viewer, []int64{item.ID})
-	if err != nil {
+	if p.Synced, err = loadSynced(ctx, d, viewer, item.ID); err != nil {
 		return nil, err
 	}
-	p.Synced = synced[item.ID]
 	if _, busy := InProgress(exps); !busy {
 		if p.Hint, err = achievements.SuggestedFinishDate(ctx, d, viewer, item); err != nil {
 			return nil, err
@@ -114,11 +132,8 @@ func QuickLogs(ctx context.Context, d *deps.Deps, viewer db.User, items []db.Med
 		return nil, err
 	}
 	for _, r := range es {
-		var st *syncedTime
-		if r.SyncedProvider != "" {
-			st = &syncedTime{Minutes: r.SyncedMinutes, Source: sourceName(d, r.SyncedProvider)}
-		}
-		out[r.Experience.MediaItemID] = quickLog(byID[r.Experience.MediaItemID], r.Experience, st)
+		s := newSynced(d, r.PlaytimeMinutes, r.PlaytimeProvider, r.ProgressFraction, r.ProgressFinished, r.ProgressProvider)
+		out[r.Experience.MediaItemID] = quickLog(byID[r.Experience.MediaItemID], r.Experience, s)
 	}
 	return out, nil
 }

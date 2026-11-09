@@ -80,7 +80,7 @@ templ actionForm(url string, class string) {
 	</form>
 }
 
-templ experienceRow(item db.MediaItem, e db.Experience, s *syncedTime) {
+templ experienceRow(item db.MediaItem, e db.Experience, s *synced) {
 	<li class="rounded-md border border-line p-3" data-experience={ e.PublicID.String() }>
 		<div class="flex flex-wrap items-center gap-2">
 			@ui.Badge(stateLabel(e.State))
@@ -93,7 +93,9 @@ templ experienceRow(item db.MediaItem, e db.Experience, s *syncedTime) {
 			</span>
 		</div>
 		if usesSynced(e, s) && active(e) {
-			<p class="mt-3 text-xs text-muted" data-testid="synced-playtime">{ syncedText(s) }</p>
+			<div class="mt-3">
+				@syncedProgress(s)
+			</div>
 		} else if manualProgress(e, s) || (e.ProgressUnit != nil && deref(e.ProgressCurrent) > 0) {
 			<div class="mt-3">
 				@progressBar(e)
@@ -135,6 +137,15 @@ templ progressBar(e db.Experience) {
 	</div>
 }
 
+templ syncedProgress(s *synced) {
+	<div class="flex items-center gap-3 text-xs text-muted">
+		if s.Progress {
+			<progress class="h-2 flex-1 accent-accent" value={ fmtNum(s.Fraction) } max="1"></progress>
+		}
+		<span data-testid="synced-progress">{ syncedText(s) }</span>
+	</div>
+}
+
 templ progressInput(e db.Experience, id string) {
 	<label for={ id } class="sr-only">Progress in { unitLabel(*e.ProgressUnit) }</label>
 	<input
@@ -152,10 +163,10 @@ templ progressInput(e db.Experience, id string) {
 	<span class="text-xs text-muted">{ unitLabel(*e.ProgressUnit) }</span>
 }
 
-templ quickLog(item db.MediaItem, e db.Experience, s *syncedTime) {
+templ quickLog(item db.MediaItem, e db.Experience, s *synced) {
 	<div id={ quickID(item) } class="mt-2 space-y-2">
 		if usesSynced(e, s) {
-			<p class="text-xs text-muted" data-testid="synced-playtime">{ syncedText(s) }</p>
+			@syncedProgress(s)
 		} else if e.ProgressUnit != nil {
 			@progressBar(e)
 		}
