@@ -396,6 +396,45 @@ func (q *Queries) ExperiencesShowEpisodeCount(ctx context.Context, mediaItemID i
 	return episode_count, err
 }
 
+const experiencesSyncedPlaytime = `-- name: ExperiencesSyncedPlaytime :many
+select ep.media_item_id, sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
+from external_playtime ep
+join connected_accounts a on a.id = ep.account_id
+where a.user_id = $1 and ep.media_item_id = any($2::bigint[])
+group by ep.media_item_id
+`
+
+type ExperiencesSyncedPlaytimeParams struct {
+	UserID       int64
+	MediaItemIds []int64
+}
+
+type ExperiencesSyncedPlaytimeRow struct {
+	MediaItemID int64
+	Minutes     int32
+	Provider    string
+}
+
+func (q *Queries) ExperiencesSyncedPlaytime(ctx context.Context, arg ExperiencesSyncedPlaytimeParams) ([]ExperiencesSyncedPlaytimeRow, error) {
+	rows, err := q.db.Query(ctx, experiencesSyncedPlaytime, arg.UserID, arg.MediaItemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ExperiencesSyncedPlaytimeRow{}
+	for rows.Next() {
+		var i ExperiencesSyncedPlaytimeRow
+		if err := rows.Scan(&i.MediaItemID, &i.Minutes, &i.Provider); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const experiencesUpdateDetails = `-- name: ExperiencesUpdateDetails :one
 update experiences
 set started_on = $1, finished_on = $2, progress_unit = $3,

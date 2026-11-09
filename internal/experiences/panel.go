@@ -21,7 +21,46 @@ type panelData struct {
 	Exps  []db.Experience
 	Today string
 	Error string
-	Hint  *achievements.FinishHint // prefills "Log as finished"
+	Hint   *achievements.FinishHint // prefills "Log as finished"
+	Synced *syncedTime
+}
+
+// syncedTime is playtime a linked account reports; it replaces manual hours entry.
+type syncedTime struct {
+	Minutes int32
+	Source  string
+}
+
+func loadSynced(ctx context.Context, d *deps.Deps, viewer db.User, ids []int64) (map[int64]*syncedTime, error) {
+	rows, err := d.Q.ExperiencesSyncedPlaytime(ctx, db.ExperiencesSyncedPlaytimeParams{UserID: viewer.ID, MediaItemIds: ids})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]*syncedTime, len(rows))
+	for _, r := range rows {
+		name := r.Provider
+		if a, ok := d.SyncAdapters.Get(r.Provider); ok {
+			name = a.Capabilities().DisplayName
+		}
+		out[r.MediaItemID] = &syncedTime{Minutes: r.Minutes, Source: name}
+	}
+	return out, nil
+}
+
+// usesSynced reports whether e's hours come from a linked account instead of manual entry.
+func usesSynced(e db.Experience, s *syncedTime) bool {
+	return s != nil && e.ProgressUnit != nil && *e.ProgressUnit == db.ProgressUnitHours
+}
+
+func manualProgress(e db.Experience, s *syncedTime) bool {
+	return e.ProgressUnit != nil && !usesSynced(e, s)
+}
+
+func syncedText(s *syncedTime) string {
+	if s.Minutes == 0 {
+		return "Not played yet on " + s.Source
+	}
+	return ui.Hours(s.Minutes) + " played on " + s.Source
 }
 
 // ItemPanel renders the viewer's experiences of item for the item detail page.
@@ -36,6 +75,11 @@ func loadPanel(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaI
 	}
 	today := Today(d.Now(), viewer.Timezone)
 	p := panelData{Item: item, Exps: exps, Today: today.Format(time.DateOnly), Error: errMsg}
+	synced, err := loadSynced(ctx, d, viewer, []int64{item.ID})
+	if err != nil {
+		return nil, err
+	}
+	p.Synced = synced[item.ID]
 	if _, busy := InProgress(exps); !busy {
 		if p.Hint, err = achievements.SuggestedFinishDate(ctx, d, viewer, item); err != nil {
 			return nil, err
@@ -56,7 +100,11 @@ func QuickLog(ctx context.Context, d *deps.Deps, viewer db.User, item db.MediaIt
 	if err != nil {
 		return nil, err
 	}
-	return quickLog(item, e), nil
+	synced, err := loadSynced(ctx, d, viewer, []int64{item.ID})
+	if err != nil {
+		return nil, err
+	}
+	return quickLog(item, e, synced[item.ID]), nil
 }
 
 // QuickLogs is QuickLog for many items in one query, keyed by media item ID.
@@ -71,8 +119,15 @@ func QuickLogs(ctx context.Context, d *deps.Deps, viewer db.User, items []db.Med
 	if err != nil {
 		return nil, err
 	}
+	if len(es) == 0 {
+		return out, nil
+	}
+	synced, err := loadSynced(ctx, d, viewer, ids)
+	if err != nil {
+		return nil, err
+	}
 	for _, e := range es {
-		out[e.MediaItemID] = quickLog(byID[e.MediaItemID], e)
+		out[e.MediaItemID] = quickLog(byID[e.MediaItemID], e, synced[e.MediaItemID])
 	}
 	return out, nil
 }

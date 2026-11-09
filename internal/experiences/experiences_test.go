@@ -584,3 +584,29 @@ func TestEditDatingUndatedFinishRecordsEventOnce(t *testing.T) {
 		t.Fatalf("verbs %q", got)
 	}
 }
+
+func TestSyncedPlaytimeReplacesManualHours(t *testing.T) {
+	s := testutil.NewServer(t)
+	u := testutil.CreateUser(t, s.Q, "alice")
+	synced := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Hades")
+	manual := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Shenmue")
+	acct := testutil.CreateConnectedAccount(t, s.Pool, u.ID, "steam", "765")
+	exec(t, s, `insert into external_playtime (account_id, media_item_id, provider_item_key, minutes_total) values ($1, $2, '1145360', 300)`, acct.ID, synced.ID)
+	c := s.LoginAs(t, u)
+
+	for _, it := range []db.MediaItem{synced, manual} {
+		wantStatus(t, c.PostForm(itemURL(it)+"/experiences", nil), http.StatusSeeOther)
+	}
+	page := c.Get(itemURL(synced)).Body
+	e := experiencesOf(t, s, u, synced)[0]
+	if strings.Contains(page, `id="f-progress-`+e.PublicID.String()) {
+		t.Error("synced game should not offer manual hours entry")
+	}
+	if !regexp.MustCompile(`data-testid="synced-playtime"[^>]*>5 h played on (Steam|steam)<`).MatchString(page) {
+		t.Error("synced game should show its Steam playtime in the history panel")
+	}
+	e = experiencesOf(t, s, u, manual)[0]
+	if page := c.Get(itemURL(manual)).Body; !strings.Contains(page, `id="f-progress-`+e.PublicID.String()) {
+		t.Error("unsynced game should keep manual hours entry")
+	}
+}

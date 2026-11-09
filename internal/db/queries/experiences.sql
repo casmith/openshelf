@@ -82,3 +82,10 @@ select exists (
   select 1 from activity_events
   where user_id = @user_id and experience_id = @experience_id and verb = @verb
 )::bool;
+
+-- name: ExperiencesSyncedPlaytime :many
+select ep.media_item_id, sum(ep.minutes_total)::int as minutes, min(a.provider)::text as provider
+from external_playtime ep
+join connected_accounts a on a.id = ep.account_id
+where a.user_id = @user_id and ep.media_item_id = any(@media_item_ids::bigint[])
+group by ep.media_item_id;
