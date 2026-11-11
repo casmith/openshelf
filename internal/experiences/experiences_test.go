@@ -633,7 +633,7 @@ func TestSyncedListeningReplacesManualPages(t *testing.T) {
 	for _, tc := range []struct {
 		item db.MediaItem
 		want string
-	}{{synced, "42% on"}, {finished, "Finished on"}, {manual, ""}} {
+	}{{synced, "42% complete on"}, {finished, "Finished on"}, {manual, ""}} {
 		item, want := tc.item, tc.want
 		wantStatus(t, c.PostForm(itemURL(item)+"/experiences", nil), http.StatusSeeOther)
 		e := experiencesOf(t, s, u, item)[0]

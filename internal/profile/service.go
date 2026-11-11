@@ -12,6 +12,7 @@ import (
 
 	"github.com/casmith/openshelf/internal/db"
 	"github.com/casmith/openshelf/internal/deps"
+	"github.com/casmith/openshelf/internal/experiences"
 	"github.com/casmith/openshelf/internal/journal"
 )
 
@@ -177,6 +178,10 @@ func load(ctx context.Context, d *deps.Deps, p profileData, viewer db.User, befo
 	}); err != nil {
 		return p, err
 	}
+	for i, r := range p.InProgress {
+		p.InProgress[i].ProgressUnit, p.InProgress[i].ProgressCurrent, p.InProgress[i].ProgressTotal = experiences.Effective(
+			r.ProgressUnit, r.ProgressCurrent, r.ProgressTotal, r.HasSyncedProgress, r.SyncedFraction, r.HasSyncedPlaytime, r.SyncedMinutes)
+	}
 	if p.Completed, err = loadCompleted(ctx, d, p, viewer, before); err != nil {
 		return p, err
 	}
@@ -213,7 +218,7 @@ func progress(unit *db.ProgressUnit, cur, total *float64) string {
 	}
 	switch *unit {
 	case db.ProgressUnitPercent:
-		return num(*cur) + "%"
+		return num(*cur) + "% complete"
 	case db.ProgressUnitPages:
 		return "p. " + frac
 	case db.ProgressUnitChapters:

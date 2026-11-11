@@ -334,3 +334,26 @@ func unique(xs []string) bool {
 	}
 	return true
 }
+
+func TestCurrentPrefersSyncedProgress(t *testing.T) {
+	s := testutil.NewServer(t)
+	alice := testutil.CreateUser(t, s.Q, "alice")
+	book := testutil.CreateItem(t, s.Pool, db.MediaKindBook, "Pandora's Star")
+	game := testutil.CreateItem(t, s.Pool, db.MediaKindGame, "Hades")
+	be := createExperience(t, s, alice.ID, book.ID, db.ExperienceStateActive)
+	exec(t, s, `update experiences set progress_unit = 'pages', progress_current = 0, progress_total = 701 where id = $1`, be)
+	ge := createExperience(t, s, alice.ID, game.ID, db.ExperienceStateActive)
+	exec(t, s, `update experiences set progress_unit = 'hours', progress_current = 2 where id = $1`, ge)
+	abs := testutil.CreateConnectedAccount(t, s.Pool, alice.ID, "audiobookshelf", "abs")
+	steam := testutil.CreateConnectedAccount(t, s.Pool, alice.ID, "steam", "765")
+	exec(t, s, `insert into external_progress (account_id, media_item_id, provider_item_key, fraction) values ($1, $2, 'li', 0.416)`, abs.ID, book.ID)
+	exec(t, s, `insert into external_playtime (account_id, media_item_id, provider_item_key, minutes_total) values ($1, $2, '1145360', 750)`, steam.ID, game.ID)
+
+	body := s.LoginAs(t, alice).Get("/").Body
+	if strings.Contains(body, "0 / 701") || !strings.Contains(body, "42% complete") || !strings.Contains(body, "width: 42%") {
+		t.Error("audiobook card should show Audiobookshelf progress as a percent, not manual pages")
+	}
+	if !strings.Contains(body, "12.5 hours") {
+		t.Error("game card should show Steam playtime instead of manual hours")
+	}
+}
