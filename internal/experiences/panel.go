@@ -77,7 +77,7 @@ func syncedText(s *synced) string {
 	case s.Progress && s.Fraction == 0:
 		return "Not started on " + s.Source
 	case s.Progress:
-		return strconv.Itoa(max(int(math.Round(s.Fraction*100)), 1)) + "% on " + s.Source
+		return strconv.Itoa(max(int(math.Round(s.Fraction*100)), 1)) + "% complete on " + s.Source
 	case s.Minutes == 0:
 		return "Not played yet on " + s.Source
 	}

@@ -206,7 +206,7 @@ func Progress(unit *db.ProgressUnit, cur, total *float64) string {
 	}
 	num := func(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 	if *unit == db.ProgressUnitPercent {
-		return num(*cur) + "%"
+		return num(*cur) + "% complete"
 	}
 	s := num(*cur)
 	if total != nil {

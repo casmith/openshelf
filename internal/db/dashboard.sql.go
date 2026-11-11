@@ -99,7 +99,10 @@ func (q *Queries) DashboardCounters(ctx context.Context, userID int64) (Dashboar
 }
 
 const dashboardCurrent = `-- name: DashboardCurrent :many
-select m.id, m.public_id, m.kind, m.title, m.sort_title, m.original_title, m.release_date, m.release_year, m.synopsis, m.genres, m.cover_image_id, m.metadata_provider, m.metadata_refreshed_at, m.locked_fields, m.created_by_user_id, m.created_at, m.updated_at, x.state, x.progress_unit, x.progress_current, x.progress_total
+select m.id, m.public_id, m.kind, m.title, m.sort_title, m.original_title, m.release_date, m.release_year, m.synopsis, m.genres, m.cover_image_id, m.metadata_provider, m.metadata_refreshed_at, m.locked_fields, m.created_by_user_id, m.created_at, m.updated_at, x.state,
+       x.progress_unit, x.progress_current, x.progress_total,
+       (pr.fraction is not null)::bool as has_synced_progress, coalesce(pr.fraction, 0)::float8 as synced_fraction,
+       (pt.minutes is not null)::bool as has_synced_playtime, coalesce(pt.minutes, 0)::int as synced_minutes
 from (
   select distinct on (e.media_item_id) e.id, e.public_id, e.user_id, e.media_item_id, e.edition_id, e.state, e.started_on, e.finished_on, e.progress_unit, e.progress_current, e.progress_total, e.notes, e.visibility, e.created_at, e.updated_at
   from experiences e
@@ -107,6 +110,16 @@ from (
   order by e.media_item_id, (e.state = 'active') desc, e.updated_at desc, e.id desc
 ) x
 join media_items m on m.id = x.media_item_id
+left join lateral (
+  select max(xp.fraction) as fraction from external_progress xp
+  join connected_accounts a on a.id = xp.account_id
+  where a.user_id = x.user_id and xp.media_item_id = x.media_item_id
+) pr on true
+left join lateral (
+  select sum(ep.minutes_total) as minutes from external_playtime ep
+  join connected_accounts a on a.id = ep.account_id
+  where a.user_id = x.user_id and ep.media_item_id = x.media_item_id
+) pt on true
 order by (x.state = 'active') desc, x.updated_at desc, x.id desc
 limit $2::int
 `
@@ -117,13 +130,18 @@ type DashboardCurrentParams struct {
 }
 
 type DashboardCurrentRow struct {
-	MediaItem       MediaItem
-	State           ExperienceState
-	ProgressUnit    *ProgressUnit
-	ProgressCurrent *float64
-	ProgressTotal   *float64
+	MediaItem         MediaItem
+	State             ExperienceState
+	ProgressUnit      *ProgressUnit
+	ProgressCurrent   *float64
+	ProgressTotal     *float64
+	HasSyncedProgress bool
+	SyncedFraction    float64
+	HasSyncedPlaytime bool
+	SyncedMinutes     int32
 }
 
+// Linked-account progress; experiences.Effective prefers it over manual entry.
 func (q *Queries) DashboardCurrent(ctx context.Context, arg DashboardCurrentParams) ([]DashboardCurrentRow, error) {
 	rows, err := q.db.Query(ctx, dashboardCurrent, arg.UserID, arg.Lim)
 	if err != nil {
@@ -155,6 +173,10 @@ func (q *Queries) DashboardCurrent(ctx context.Context, arg DashboardCurrentPara
 			&i.ProgressUnit,
 			&i.ProgressCurrent,
 			&i.ProgressTotal,
+			&i.HasSyncedProgress,
+			&i.SyncedFraction,
+			&i.HasSyncedPlaytime,
+			&i.SyncedMinutes,
 		); err != nil {
 			return nil, err
 		}

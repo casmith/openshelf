@@ -59,6 +59,8 @@ func load(ctx context.Context, d *deps.Deps, viewer db.User) (homeData, error) {
 		return h, err
 	}
 	for _, c := range current {
+		c.ProgressUnit, c.ProgressCurrent, c.ProgressTotal = experiences.Effective(c.ProgressUnit, c.ProgressCurrent, c.ProgressTotal,
+			c.HasSyncedProgress, c.SyncedFraction, c.HasSyncedPlaytime, c.SyncedMinutes)
 		h.Current = append(h.Current, currentCard{c, logs[c.MediaItem.ID]})
 	}
 	if h.Finished, err = d.Q.DashboardRecentlyFinished(ctx, db.DashboardRecentlyFinishedParams{UserID: viewer.ID, Lim: finishedLimit}); err != nil {
